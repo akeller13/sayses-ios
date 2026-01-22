@@ -1,0 +1,89 @@
+name: SAYses
+options:
+  bundleIdPrefix: com.sayses
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "26.2"
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    ENABLE_BITCODE: NO
+    CLANG_CXX_LANGUAGE_STANDARD: c++17
+    CLANG_CXX_LIBRARY: libc++
+
+targets:
+  SAYses:
+    type: application
+    platform: iOS
+    sources:
+      - path: SAYses
+        excludes:
+          - "**/.DS_Store"
+          - "Bridges/AudioEngineBridge.mm"
+          - "Bridges/MumbleClientBridge.mm"
+          - "Bridges/AudioEngineBridge.h"
+          - "Bridges/MumbleClientBridge.h"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sayses.app
+        INFOPLIST_FILE: SAYses/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: SAYses/Resources/SAYses.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: SAYses/Bridges/SAYses-Bridging-Header.h
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: -Onone
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: -O
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+    dependencies:
+      - sdk: AVFoundation.framework
+      - sdk: AuthenticationServices.framework
+      - sdk: PushKit.framework
+      - sdk: Security.framework
+      - sdk: AudioToolbox.framework
+    preBuildScripts: []
+    postBuildScripts: []
+
+  SAYsesTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: SAYsesTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sayses.app.tests
+    dependencies:
+      - target: SAYses
+
+schemes:
+  SAYses:
+    build:
+      targets:
+        SAYses: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - SAYsesTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
