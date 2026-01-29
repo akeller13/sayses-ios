@@ -31,6 +31,7 @@
     <array>
         <string>audio</string>
         <string>voip</string>
+        <string>location</string>
     </array>
     <key>UILaunchScreen</key>
     <dict>
@@ -57,6 +58,10 @@
     </array>
     <key>NSMicrophoneUsageDescription</key>
     <string>SAYses benötigt Zugriff auf das Mikrofon für Sprachkommunikation.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>SAYses benötigt Ihren Standort, um bei einem Alarm Ihre Position zu übermitteln.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>SAYses benötigt dauerhaften Standortzugriff, um während eines aktiven Alarms Ihre Position kontinuierlich zu aktualisieren.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

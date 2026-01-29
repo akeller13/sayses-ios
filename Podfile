@@ -12,6 +12,9 @@ target 'SAYses' do
   # Speex for audio preprocessing (includes SpeexDSP)
   pod 'Speex-iOS', '~> 0.2.0'
 
+  # Keychain access for secure credential storage
+  pod 'KeychainAccess', '~> 4.2'
+
 end
 
 post_install do |installer|

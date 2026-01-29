@@ -50,8 +50,9 @@ class ChannelViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] level in
                 guard let self = self else { return }
-                // Always update audio level when transmitting
-                if self.isTransmitting {
+                // Only update when transmitting AND change is significant (> 0.05)
+                // This prevents excessive UI updates that cause performance issues
+                if self.isTransmitting && abs(level - self.audioLevel) > 0.05 {
                     self.audioLevel = level
                 }
             }
@@ -163,6 +164,29 @@ class ChannelViewModel {
     func triggerAlarm() {
         // TODO: Trigger alarm via API
         print("Alarm triggered for channel: \(channel.name)")
+    }
+
+    /// Handle transmission mode change from settings/menu
+    /// (Matches Android's LaunchedEffect(uiState.transmissionMode) pattern)
+    func handleTransmissionModeChange(from oldMode: TransmissionMode, to newMode: TransmissionMode) {
+        NSLog("[ChannelViewModel] Mode changed via menu: \(oldMode.rawValue) -> \(newMode.rawValue)")
+
+        if newMode == .continuous && oldMode != .continuous {
+            // Switched TO continuous - start transmitting
+            if canSpeak && !isTransmitting {
+                isTransmitting = true
+                mumbleService.startTransmitting()
+                NSLog("[ChannelViewModel] Started continuous transmission")
+            }
+        } else if oldMode == .continuous && newMode != .continuous {
+            // Switched FROM continuous - stop transmitting
+            if isTransmitting {
+                isTransmitting = false
+                audioLevel = 0
+                mumbleService.stopTransmitting()
+                NSLog("[ChannelViewModel] Stopped continuous transmission")
+            }
+        }
     }
 
     /// Toggle between PTT and Continuous mode (for double-click feature)

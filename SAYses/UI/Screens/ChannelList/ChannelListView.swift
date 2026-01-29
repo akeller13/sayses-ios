@@ -1,8 +1,9 @@
 import SwiftUI
+import UIKit
 
 struct ChannelListView: View {
     @Environment(AuthViewModel.self) private var authViewModel
-    @StateObject private var mumbleService = MumbleService()
+    @ObservedObject var mumbleService: MumbleService
     @State private var searchText = ""
     @State private var showSettings = false
     @State private var showTransmissionMode = false
@@ -11,8 +12,18 @@ struct ChannelListView: View {
     @State private var navigationPath = NavigationPath()
     @State private var showOnlyFavorites = false
 
+    // Alarm state
+    @State private var showAlarmCountdown = false
+    @State private var showOpenAlarms = false
+    @State private var alarmTextVisible = true
+
+    // Post-alarm recording state
+    @State private var showPostAlarmRecording = false
+    @State private var remainingRecordingTime = 0
+
     // Settings from AppStorage
     @AppStorage("transmissionMode") private var transmissionModeRaw = TransmissionMode.pushToTalk.rawValue
+    @AppStorage("keepAwake") private var keepAwake = true
 
     private var transmissionMode: TransmissionMode {
         TransmissionMode(rawValue: transmissionModeRaw) ?? .pushToTalk
@@ -37,7 +48,32 @@ struct ChannelListView: View {
                     }
 
                     ToolbarItem(placement: .topBarTrailing) {
-                        optionsMenu
+                        HStack(spacing: 16) {
+                            // Open alarms button with badge
+                            if mumbleService.userPermissions.canReceiveAlarm {
+                                Button(action: { showOpenAlarms = true }) {
+                                    ZStack(alignment: .topTrailing) {
+                                        Image(systemName: "bell.fill")
+                                            .font(.body)
+                                            .foregroundStyle(mumbleService.openAlarms.isEmpty ? .secondary : Color.alarmRed)
+
+                                        // Badge for open alarms count
+                                        if !mumbleService.openAlarms.isEmpty {
+                                            Text("\(mumbleService.openAlarms.count)")
+                                                .font(.caption2)
+                                                .fontWeight(.bold)
+                                                .foregroundStyle(.white)
+                                                .padding(4)
+                                                .background(Color.alarmRed)
+                                                .clipShape(Circle())
+                                                .offset(x: 8, y: -8)
+                                        }
+                                    }
+                                }
+                            }
+
+                            optionsMenu
+                        }
                     }
                 }
                 .navigationDestination(for: Channel.self) { channel in
@@ -50,9 +86,33 @@ struct ChannelListView: View {
                         }
                 }
             }
+            // Alarm button - using safeAreaInset to not interfere with NavigationStack
+            .safeAreaInset(edge: .bottom) {
+                if mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized && !mumbleService.hasOwnOpenAlarm {
+                    AlarmTriggerButton(
+                        holdDuration: Double(mumbleService.alarmSettings.alarmHoldDuration),
+                        onHoldStart: {
+                            // Phase 1 start: Begin GPS warm-up
+                            mumbleService.startAlarmWarmUp()
+                        },
+                        onHoldComplete: {
+                            // Phase 1 complete: Start voice recording and show countdown
+                            mumbleService.startVoiceRecording()
+                            showAlarmCountdown = true
+                        },
+                        onHoldCancel: {
+                            // User released early: Cancel warm-up
+                            mumbleService.cancelAlarmWarmUp()
+                        }
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                }
+            }
 
             // Offline status banner at bottom
             OfflineStatusBanner(secondsUntilRetry: mumbleService.reconnectCountdown)
+                .allowsHitTesting(false)
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
@@ -62,11 +122,53 @@ struct ChannelListView: View {
             TransmissionModeSheet()
         }
         .sheet(isPresented: $showInfo) {
-            ServerInfoSheet(serverInfo: mumbleService.serverInfo, connectionState: mumbleService.connectionState)
+            InfoView(mumbleService: mumbleService)
+        }
+        .fullScreenCover(isPresented: $showAlarmCountdown) {
+            AlarmCountdownDialog(
+                countdownDuration: mumbleService.alarmSettings.alarmCountdownDuration,
+                onCancel: {
+                    // User cancelled during countdown - cancel everything including recording
+                    showAlarmCountdown = false
+                    mumbleService.cancelVoiceRecording()
+                    mumbleService.cancelAlarmWarmUp()
+                },
+                onTriggerNow: { elapsedSeconds in
+                    // User wants to trigger alarm immediately
+                    showAlarmCountdown = false
+                    triggerAlarmAndShowPostRecording(elapsedCountdownSeconds: elapsedSeconds)
+                },
+                onComplete: {
+                    // Countdown complete - trigger alarm (full countdown elapsed)
+                    showAlarmCountdown = false
+                    triggerAlarmAndShowPostRecording(elapsedCountdownSeconds: mumbleService.alarmSettings.alarmCountdownDuration)
+                }
+            )
+        }
+        .fullScreenCover(isPresented: $showPostAlarmRecording) {
+            PostAlarmRecordingDialog(
+                remainingSeconds: remainingRecordingTime,
+                onSubmit: {
+                    // User submitted recording (early or auto)
+                    print("[ChannelListView] PostAlarmRecordingDialog onSubmit called - closing dialog and submitting voice recording")
+                    showPostAlarmRecording = false
+                    Task {
+                        await mumbleService.submitVoiceRecording()
+                    }
+                }
+            )
+        }
+        .sheet(isPresented: $showOpenAlarms) {
+            OpenAlarmsScreen(mumbleService: mumbleService)
         }
         .task {
             loadFavorites()
             await mumbleService.connectWithStoredCredentials()
+        }
+        .onAppear {
+            if keepAwake {
+                UIApplication.shared.isIdleTimerDisabled = true
+            }
         }
         // Handle auto-navigation from server channel changes
         .onReceive(mumbleService.$navigateToChannel) { channelId in
@@ -82,6 +184,53 @@ struct ChannelListView: View {
             // Pop back to root (channel list)
             navigationPath = NavigationPath()
             mumbleService.navigateBackToList = false
+        }
+        // Blink animation for ALARM text
+        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+            if !mumbleService.openAlarms.isEmpty {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    alarmTextVisible.toggle()
+                }
+            } else {
+                alarmTextVisible = true
+            }
+        }
+    }
+
+    // MARK: - Alarm Helpers
+
+    /// Trigger alarm and show post-recording dialog if there's remaining recording time
+    private func triggerAlarmAndShowPostRecording(elapsedCountdownSeconds: Int) {
+        // Prevent race condition: if this function is called multiple times for the same alarm
+        // (e.g., both onComplete and onTriggerNow fire due to timing), only process the first call
+        guard !showPostAlarmRecording else {
+            print("[ChannelListView] triggerAlarmAndShowPostRecording: dialog already showing, ignoring duplicate call")
+            return
+        }
+
+        // Calculate remaining recording time
+        let totalVoiceNoteDuration = mumbleService.alarmSettings.alarmVoiceNoteDuration
+        let remaining = totalVoiceNoteDuration - elapsedCountdownSeconds
+
+        print("[ChannelListView] triggerAlarmAndShowPostRecording called")
+        print("[ChannelListView]   remaining: \(remaining)")
+
+        // Show dialog IMMEDIATELY if there's remaining time (don't wait for alarm trigger)
+        if remaining > 0 {
+            print("[ChannelListView] Showing PostAlarmRecordingDialog with \(remaining) seconds")
+            remainingRecordingTime = remaining
+            showPostAlarmRecording = true
+        }
+
+        // Trigger alarm in background (don't block UI)
+        Task {
+            await mumbleService.triggerAlarmWithoutStoppingRecording()
+
+            // If no remaining time, submit immediately after alarm is triggered
+            if remaining <= 0 {
+                print("[ChannelListView] No remaining time - submitting immediately")
+                await mumbleService.submitVoiceRecording()
+            }
         }
     }
 
@@ -103,7 +252,7 @@ struct ChannelListView: View {
                 .font(.system(size: 50))
                 .foregroundStyle(.orange)
 
-            Text("Verbindungsfehler")
+            Text("Verbindung fehlgeschlagen")
                 .font(.headline)
 
             if let error = mumbleService.errorMessage {
@@ -113,6 +262,13 @@ struct ChannelListView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
             }
+
+            // Debug info
+            let hasSubdomain = UserDefaults.standard.string(forKey: "subdomain") != nil
+            let hasCreds = CredentialsStore.shared.getStoredCredentials() != nil
+            Text("Debug: subdomain=\(hasSubdomain), creds=\(hasCreds)")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
 
             Button("Erneut versuchen") {
                 Task {
@@ -130,6 +286,16 @@ struct ChannelListView: View {
                 HStack {
                     Text("Kanäle")
                         .font(.title2)
+
+                    if !mumbleService.openAlarms.isEmpty {
+                        Button(action: { showOpenAlarms = true }) {
+                            Text("ALARM")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(Color.alarmRed)
+                                .opacity(alarmTextVisible ? 1.0 : 0.3)
+                        }
+                    }
 
                     Spacer()
 
@@ -175,25 +341,29 @@ struct ChannelListView: View {
 
     private var profileMenu: some View {
         Menu {
-            Button(action: {}) {
+            Button {
+                showOnlyFavorites = false
+            } label: {
                 Label("Alle Kanäle", systemImage: "list.bullet")
             }
-            Button(action: {}) {
+
+            Button {
+                showOnlyFavorites = true
+            } label: {
                 Label("Nur Favoriten", systemImage: "star")
             }
+
             Divider()
-            Button(action: {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    showInfo = true
-                }
-            }) {
+
+            Button {
+                showInfo = true
+            } label: {
                 Label("Information", systemImage: "info.circle")
             }
-            Button(action: {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    showSettings = true
-                }
-            }) {
+
+            Button {
+                showSettings = true
+            } label: {
                 Label("Einstellungen", systemImage: "gear")
             }
         } label: {
@@ -209,20 +379,23 @@ struct ChannelListView: View {
 
     private var optionsMenu: some View {
         Menu {
-            Button(action: {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    showTransmissionMode = true
-                }
-            }) {
+            Button {
+                showTransmissionMode = true
+            } label: {
                 Label("Übertragungsmodus", systemImage: "mic")
             }
-            Button(action: {
+
+            Button {
                 Task { await mumbleService.reconnect() }
-            }) {
+            } label: {
                 Label("Neu laden", systemImage: "arrow.clockwise")
             }
+
             Divider()
-            Button(role: .destructive, action: logout) {
+
+            Button(role: .destructive) {
+                logout()
+            } label: {
                 Label("Abmelden", systemImage: "rectangle.portrait.and.arrow.right")
             }
         } label: {
@@ -234,7 +407,9 @@ struct ChannelListView: View {
     // MARK: - Computed Properties
 
     private var filteredChannels: [Channel] {
-        var channels = mumbleService.getChannelsForDisplay()
+        // Access mumbleService.channels directly to ensure proper SwiftUI observation
+        // (calling a function might not establish observation correctly)
+        var channels = mumbleService.channels
 
         // Filter by favorites if enabled
         if showOnlyFavorites {
@@ -269,18 +444,28 @@ struct ChannelListView: View {
     }
 
     private func loadFavorites() {
-        let ids = UserDefaults.standard.array(forKey: "favoriteChannels") as? [UInt32] ?? []
-        favoriteIds = Set(ids)
+        // UserDefaults stores numbers as NSNumber/Int, not UInt32
+        // So we need to load as [Int] and convert to UInt32
+        let ids = UserDefaults.standard.array(forKey: "favoriteChannels") as? [Int] ?? []
+        favoriteIds = Set(ids.map { UInt32($0) })
     }
 
     private func saveFavorites() {
-        UserDefaults.standard.set(Array(favoriteIds), forKey: "favoriteChannels")
+        // Save as [Int] for UserDefaults compatibility
+        let intIds = favoriteIds.map { Int($0) }
+        UserDefaults.standard.set(intIds, forKey: "favoriteChannels")
     }
 
     private func logout() {
         mumbleService.disconnect()
         authViewModel.logout()
     }
+
+    // Note: triggerAlarm is now called via AlarmCountdownDialog.onComplete
+    // The 3-phase workflow is:
+    // 1. User holds button -> onHoldStart -> GPS warm-up
+    // 2. Hold complete -> onHoldComplete -> Voice recording + Countdown dialog
+    // 3. Countdown complete -> onComplete -> triggerAlarm()
 }
 
 // MARK: - Channel Row Button (tappable, not NavigationLink)
@@ -335,38 +520,72 @@ struct ChannelRowButton: View {
     }
 }
 
-// MARK: - Server Info Sheet
+// MARK: - Info View
 
-struct ServerInfoSheet: View {
-    let serverInfo: ServerInfo?
-    let connectionState: ConnectionState
+struct InfoView: View {
+    @ObservedObject var mumbleService: MumbleService
     @Environment(\.dismiss) private var dismiss
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+    }
+
+    private var buildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                Section("Verbindung") {
-                    LabeledContent("Status", value: connectionState.displayText)
+                Section("SAYses") {
+                    LabeledContent("Version", value: "\(appVersion) (\(buildNumber))")
                 }
 
-                if let info = serverInfo {
-                    Section("Server") {
+                Section("Server") {
+                    if let info = mumbleService.serverInfo {
                         LabeledContent("Version", value: info.serverVersion)
-                        LabeledContent("Max. Benutzer", value: "\(info.maxUsers)")
-                        LabeledContent("Max. Bandbreite", value: "\(info.maxBandwidth / 1000) kbit/s")
-                    }
-
-                    if !info.welcomeMessage.isEmpty {
-                        Section("Willkommensnachricht") {
-                            Text(info.welcomeMessage)
-                                .font(.body)
+                        if !info.serverOs.isEmpty {
+                            LabeledContent("Betriebssystem", value: info.serverOs)
                         }
+                    } else {
+                        LabeledContent("Version", value: "—")
                     }
                 }
 
-                Section("App") {
-                    LabeledContent("Version", value: "1.0.0")
-                    LabeledContent("Build", value: "1")
+                Section("Kontrollkanal") {
+                    LabeledContent("Latenz", value: formatLatency(mumbleService.latencyMs))
+                    LabeledContent("Verschlüsselung", value: formatCipherSuite(mumbleService.tlsCipherSuite))
+                }
+
+                Section("Sprachkanal") {
+                    LabeledContent("Latenz", value: formatLatency(mumbleService.latencyMs))
+                    LabeledContent("Verschlüsselung", value: "128 bit OCB-AES-128")
+                    LabeledContent("Transport", value: "UDP über TCP (Tunnel)")
+                    LabeledContent("Codec", value: "Opus")
+                }
+
+                Section("Audio") {
+                    if let info = mumbleService.serverInfo {
+                        LabeledContent("Max. Bandbreite", value: "\(info.maxBandwidth / 1000) kbit/s")
+                    } else {
+                        LabeledContent("Max. Bandbreite", value: "—")
+                    }
+                }
+
+                Section("Server Einstellungen") {
+                    LabeledContent("Haltezeit Alarmbutton", value: formatHoldDuration(mumbleService.alarmSettings.alarmHoldDuration))
+                    LabeledContent("Countdown-Dauer", value: "\(mumbleService.alarmSettings.alarmCountdownDuration)s")
+                    LabeledContent("Wartezeit GPS-Fix", value: "\(mumbleService.alarmSettings.gpsWaitDuration)s")
+                    LabeledContent("Max. Dauer Alarm-Sprachnotiz", value: "\(mumbleService.alarmSettings.alarmVoiceNoteDuration)s")
+                    LabeledContent("Letzte Aktualisierung", value: formatTimestamp(mumbleService.lastSettingsUpdate))
+                }
+
+                Section("Benutzer-Rechte") {
+                    PermissionRow(label: "Alarme empfangen", hasPermission: mumbleService.userPermissions.canReceiveAlarm)
+                    PermissionRow(label: "Alarme auslösen", hasPermission: mumbleService.userPermissions.canTriggerAlarm)
+                    PermissionRow(label: "Alarme beenden", hasPermission: mumbleService.userPermissions.canEndAlarm)
+                    PermissionRow(label: "AudioCast verwalten", hasPermission: mumbleService.userPermissions.canManageAudiocast)
+                    PermissionRow(label: "AudioCast abspielen", hasPermission: mumbleService.userPermissions.canPlayAudiocast)
                 }
             }
             .navigationTitle("Information")
@@ -378,9 +597,49 @@ struct ServerInfoSheet: View {
             }
         }
     }
+
+    private func formatLatency(_ latencyMs: Int64) -> String {
+        latencyMs < 0 ? "— ms" : "\(latencyMs) ms"
+    }
+
+    private func formatCipherSuite(_ cipherSuite: String) -> String {
+        if cipherSuite.isEmpty { return "—" }
+        var formatted = cipherSuite
+        if formatted.hasPrefix("TLS_") {
+            formatted = String(formatted.dropFirst(4))
+        }
+        return formatted.replacingOccurrences(of: "_", with: "-")
+    }
+
+    private func formatHoldDuration(_ duration: Float) -> String {
+        duration == floor(duration) ? "\(Int(duration))s" : String(format: "%.1fs", duration)
+    }
+
+    private func formatTimestamp(_ date: Date?) -> String {
+        guard let date = date else { return "—" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd.MM.yyyy HH:mm"
+        formatter.locale = Locale(identifier: "de_DE")
+        return formatter.string(from: date)
+    }
+}
+
+struct PermissionRow: View {
+    let label: String
+    let hasPermission: Bool
+
+    var body: some View {
+        HStack {
+            Image(systemName: hasPermission ? "checkmark.circle.fill" : "xmark.circle")
+                .foregroundStyle(hasPermission ? .green : .secondary)
+            Text(label)
+                .foregroundStyle(hasPermission ? .primary : .secondary)
+            Spacer()
+        }
+    }
 }
 
 #Preview {
-    ChannelListView()
+    ChannelListView(mumbleService: MumbleService())
         .environment(AuthViewModel())
 }

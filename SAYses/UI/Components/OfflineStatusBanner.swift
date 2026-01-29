@@ -11,7 +11,7 @@ struct OfflineStatusBanner: View {
                 Image(systemName: "wifi.slash")
                     .foregroundStyle(.red)
 
-                Text("Verbindung offline. Nächster Versuch: \(timeString)")
+                Text("VOX-Server nicht erreichbar. Nächster Versuch: \(timeString)")
                     .font(.caption)
                     .foregroundStyle(.red)
             }

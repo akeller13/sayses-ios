@@ -68,13 +68,17 @@ class ChannelListViewModel {
     // MARK: - Private
 
     private func loadFavorites() {
-        let ids = UserDefaults.standard.array(forKey: "favoriteChannels") as? [UInt32] ?? []
-        favoriteIds = Set(ids)
+        // UserDefaults stores numbers as NSNumber/Int, not UInt32
+        // So we need to load as [Int] and convert to UInt32
+        let ids = UserDefaults.standard.array(forKey: "favoriteChannels") as? [Int] ?? []
+        favoriteIds = Set(ids.map { UInt32($0) })
         updateFavoriteChannels()
     }
 
     private func saveFavorites() {
-        UserDefaults.standard.set(Array(favoriteIds), forKey: "favoriteChannels")
+        // Save as [Int] for UserDefaults compatibility
+        let intIds = favoriteIds.map { Int($0) }
+        UserDefaults.standard.set(intIds, forKey: "favoriteChannels")
     }
 
     private func updateFavoriteChannels() {

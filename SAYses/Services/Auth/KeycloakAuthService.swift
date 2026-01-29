@@ -1,6 +1,7 @@
 import Foundation
 import AuthenticationServices
 import CommonCrypto
+import UIKit
 
 class KeycloakAuthService: NSObject {
     private let keycloakURL = "https://auth.sayses.com"
@@ -211,6 +212,7 @@ class KeycloakAuthService: NSObject {
 
 extension KeycloakAuthService: ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        // ASWebAuthenticationSession calls this on the main thread
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = scene.windows.first else {
             return ASPresentationAnchor()

@@ -2,15 +2,23 @@ import UIKit
 import PushKit
 import AVFoundation
 
+extension Notification.Name {
+    static let audioSessionInterruptionEnded = Notification.Name("audioSessionInterruptionEnded")
+}
+
 class AppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate {
 
     private var voipRegistry: PKPushRegistry?
+    private var isRecoveringFromInterruption = false
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
 
         // Configure audio session for VoIP
         configureAudioSession()
+
+        // Register for audio interruption notifications
+        setupAudioInterruptionHandler()
 
         // Register for VoIP push notifications
         registerForVoIPPush()
@@ -34,10 +42,144 @@ class AppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate {
             try session.setPreferredSampleRate(48000)
             try session.setPreferredIOBufferDuration(0.01)  // 10ms buffer
             try session.setActive(true)  // WICHTIG: Audio-Session aktivieren!
+
+            // Erzwinge Wiedergabe über den Lautsprecher (nicht Telefonhörer)
+            try session.overrideOutputAudioPort(.speaker)
+
             print("Audio session configured and activated successfully")
+            print("Audio output route: \(session.currentRoute.outputs.first?.portType.rawValue ?? "unknown")")
         } catch {
             print("Failed to configure audio session: \(error)")
         }
+    }
+
+    private func setupAudioInterruptionHandler() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance()
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRouteChange),
+            name: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance()
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppWillResignActive),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleAudioInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+
+        switch type {
+        case .began:
+            print("[Audio] Interruption began (e.g., phone call)")
+            isRecoveringFromInterruption = true
+            // Audio is automatically paused by the system
+
+        case .ended:
+            print("[Audio] Interruption ended")
+
+            // Check if we should resume
+            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                if options.contains(.shouldResume) {
+                    print("[Audio] Resuming audio session after interruption")
+                    reactivateAudioSessionAfterInterruption()
+                }
+            } else {
+                // No options provided, try to reactivate anyway
+                reactivateAudioSessionAfterInterruption()
+            }
+            isRecoveringFromInterruption = false
+
+        @unknown default:
+            break
+        }
+    }
+
+    @objc private func handleRouteChange(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
+            return
+        }
+
+        switch reason {
+        case .oldDeviceUnavailable:
+            print("[Audio] Audio device disconnected (e.g., headphones unplugged)")
+            // Audio continues through speaker
+
+        case .newDeviceAvailable:
+            print("[Audio] New audio device connected")
+
+        case .categoryChange:
+            print("[Audio] Audio category changed")
+
+        default:
+            break
+        }
+    }
+
+    private func reactivateAudioSession() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            try session.overrideOutputAudioPort(.speaker)
+            print("[Audio] Audio session reactivated successfully")
+        } catch {
+            print("[Audio] Failed to reactivate audio session: \(error)")
+        }
+    }
+
+    private func reactivateAudioSessionAfterInterruption() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            try session.overrideOutputAudioPort(.speaker)
+            print("[Audio] Audio session reactivated after interruption")
+
+            // Notify AudioService to restart audio engine (only after actual interruption)
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .audioSessionInterruptionEnded, object: nil)
+            }
+        } catch {
+            print("[Audio] Failed to reactivate audio session after interruption: \(error)")
+        }
+    }
+
+    @objc private func handleAppDidBecomeActive() {
+        print("[App] Did become active - ensuring audio session is active")
+        // Skip if we're recovering from an interruption (handled separately)
+        if isRecoveringFromInterruption {
+            print("[App] Skipping - already recovering from interruption")
+            return
+        }
+        reactivateAudioSession()
+    }
+
+    @objc private func handleAppWillResignActive() {
+        print("[App] Will resign active - audio session remains active for background VoIP")
+        // Don't deactivate audio session - we want to keep receiving audio in background
     }
 
     // MARK: - VoIP Push

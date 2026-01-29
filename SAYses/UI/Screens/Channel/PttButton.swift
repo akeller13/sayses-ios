@@ -24,15 +24,19 @@ struct PttButton: View {
             .frame(width: 264, height: 264)
             .overlay {
                 ZStack {
-                    // Dashed rotating border
+                    // Dashed rotating border - isolated from other animations
                     DashedCircle(color: buttonColor)
+                        .drawingGroup()  // Rasterize Canvas to prevent redraw interference
                         .rotationEffect(.degrees(rotation))
+                        .animation(nil, value: isTransmitting)  // Prevent isTransmitting from affecting rotation
+                        .animation(nil, value: audioLevel)  // Prevent audioLevel from affecting rotation
 
-                    // Inner circle
+                    // Inner circle with color/scale animation
                     Circle()
                         .fill(buttonColor)
                         .padding(6)
                         .scaleEffect(scale)
+                        .animation(.easeInOut(duration: 0.2), value: isTransmitting)
 
                     // Microphone icon
                     Image(systemName: "mic.fill")
@@ -67,8 +71,6 @@ struct PttButton: View {
                     rotation = 360
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: isTransmitting)
-            .animation(.easeInOut(duration: 0.1), value: audioLevel)
     }
 }
 

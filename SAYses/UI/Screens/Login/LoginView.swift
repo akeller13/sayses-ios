@@ -10,10 +10,10 @@ struct LoginView: View {
 
             // Logo and Title
             VStack(spacing: 16) {
-                Image("MicCircle")
+                Image("LaunchLogo")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 100, height: 100)
+                    .frame(width: 120, height: 120)
 
                 Text("SAYses")
                     .font(.system(size: 42, weight: .bold))
@@ -24,15 +24,6 @@ struct LoginView: View {
             }
 
             Spacer()
-
-            // Error message
-            if let error = authViewModel.errorMessage {
-                Text(error)
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
 
             // Login Button
             Button {
@@ -48,13 +39,13 @@ struct LoginView: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(authViewModel.isLoading ? Color.gray : Color.semparaPrimary)
+                .background((authViewModel.isLoading || showEmailSheet) ? Color.gray : Color.semparaPrimary)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 32)
-            .disabled(authViewModel.isLoading)
+            .disabled(authViewModel.isLoading || showEmailSheet)
 
             // Version info
             Text("SAYses iOS Version 1.0.0")

@@ -58,9 +58,9 @@ struct Channel: Identifiable, Hashable {
     }
 
     /// Check if user can see this channel (has Traverse or Enter permission)
-    /// If permissions are unknown (-1), assume accessible until proven otherwise
+    /// If permissions are unknown (-1), channel is NOT accessible (must wait for server response)
     var canAccess: Bool {
-        permissions == -1 || (
+        permissions != -1 && (
             (permissions & Channel.PERMISSION_TRAVERSE) != 0 ||
             (permissions & Channel.PERMISSION_ENTER) != 0
         )

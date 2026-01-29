@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		02C181DF0FC28535908EA5C0 /* ChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F9FC7B92D0601D7D61BECA /* ChannelView.swift */; };
+		05FB57307ACA6ED3B1180217 /* AlarmSoundPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51BC07642B261C96F565FF2 /* AlarmSoundPlayer.swift */; };
 		0A9EFBF215DE3098C7A90D68 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B1FB0E5D4155C90EBE7E78 /* AppDelegate.swift */; };
 		0AC5E48BDC3D5DD9301BCD53 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D142C74BC30977E5E53C794 /* AuthViewModel.swift */; };
 		0B58944E9ADDE037C7A48C2B /* Colors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666E03D768EEAB973B6BCA33 /* Colors.swift */; };
@@ -19,37 +20,52 @@
 		184F031E6D4E3144B0168705 /* WorkspaceLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9EE182026B9600FED0969C /* WorkspaceLookup.swift */; };
 		1C52F5BBC506CB93149C5847 /* TransmissionModeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB18D64F5EE416F9FF8C1B2 /* TransmissionModeSheet.swift */; };
 		23890B5DC7859EA16E539A86 /* SemparaAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6596C313812F3F10071D44E /* SemparaAPIClient.swift */; };
+		23929CF33DF7460BCA395887 /* AudioCastModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33705A009486368E024E8EC9 /* AudioCastModels.swift */; };
 		23BC7DD35F3258E1E3BCFB74 /* AuthenticationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ECE915E0A76CA14CB317E1D3 /* AuthenticationServices.framework */; };
 		36180996E67B2164A094A63F /* MumbleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51DBEB0B8825AC23F2F9FCE2 /* MumbleService.swift */; };
 		370B80D4D2AB87AFAC2B2723 /* ChannelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03FD34D7E539538FF3536B14 /* ChannelViewModel.swift */; };
+		377B49364BEADEBC04A9BE33 /* CredentialsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B0A4BD641C4D8E0497201C /* CredentialsStore.swift */; };
 		3C5371927FB065AFFB7B2BA7 /* OfflineStatusBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDAB89DE09DDA69BB4B890A5 /* OfflineStatusBanner.swift */; };
 		412DCD4CD1EE283061698B6B /* user_audio_buffer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C91A93144C406BCB6CC417EA /* user_audio_buffer.cpp */; };
 		41A94FD9D54B3A4A90AC7AC6 /* AlarmTriggerButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7370DB9A5DF799493B594BEF /* AlarmTriggerButton.swift */; };
 		49E26C93639B44FB7E1001AD /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CBBF7B9373A05F05FD2348F6 /* Security.framework */; };
 		55BD3DEDE37569A02F7C2F6F /* EmailLookupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704CA3BDEDAC566DE26735BF /* EmailLookupSheet.swift */; };
+		581814CC4556E249CD83A9E1 /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00A8DDCF485A445826D20CE /* VoiceRecorder.swift */; };
 		58328E038310AEE7BE06BDD5 /* MumbleProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5773DBDAEFB677495E2F0B96 /* MumbleProtocol.swift */; };
 		5ACFAE9E04DEB9FCD5883BA9 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AE3D0CCC9670D419FF9277C1 /* AVFoundation.framework */; };
 		5F552BB86B3DB3A7992C14B9 /* jitter_buffer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 014CDC4FE9CBBDF583587400 /* jitter_buffer.cpp */; };
 		64F086D89ADEA65D9ACBDC13 /* ChannelRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD902823BA69DB60D629F35 /* ChannelRowView.swift */; };
 		65B6D95C98444B60639008CF /* SAYsesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30406EC7FE3B9E996B4B6C34 /* SAYsesTests.swift */; };
+		70D81D1D3FC3F3010FE608D2 /* AlarmSoundPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D7FA405A5D7576AEDA1435D /* AlarmSoundPicker.swift */; };
 		7648E85298F5B054FBAAE110 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06D87CA17D78F7F369D16DB9 /* User.swift */; };
 		79AF6597ED777B7750C8FB5C /* speex_dsp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 120FBF80F2C7E4B76198E76A /* speex_dsp.cpp */; };
 		7C0802C1AB334B5CB5D5BDF2 /* OpusCodecBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = 82A8B60D6B804FB5B3E74FED /* OpusCodecBridge.mm */; };
 		7EDF55F5F9FC84B3AE2E516B /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E7B47165A9FFA18BAF097BAF /* AudioToolbox.framework */; };
+		856F5FADDAA790D8DF8BFD66 /* AlarmEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80741C985E8FDBFEDBF0A516 /* AlarmEntity.swift */; };
 		8AA9016C8D2EE04CD68D8D6F /* ChannelListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98F817704DCE3887588C490A /* ChannelListView.swift */; };
 		92BB85BC7CE3C2B50246C590 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8A90367E737EB7480E344A8A /* Assets.xcassets */; };
 		965286E131F59DED5A526384 /* vad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6555B75165230C3025458FAC /* vad.cpp */; };
 		9F20107B5613A05F52E1CD4D /* KeycloakAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF205812D9FDA95528503CAA /* KeycloakAuthService.swift */; };
 		AD26D985FB371B706556AA6B /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F39FCACF3B0CCA17867F19DF /* RootView.swift */; };
 		AD38F26AB855722929A30024 /* audio_engine.mm in Sources */ = {isa = PBXBuildFile; fileRef = 10E434BE64BB3355E6E97B57 /* audio_engine.mm */; };
+		ADBD4EA4FDFEDE10E107B163 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D21F5413CFEB560099CEF608 /* LocationService.swift */; };
+		ADD849C5F93128525F258968 /* AlarmModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 507A7B4D2BC8659C5A486CE2 /* AlarmModels.swift */; };
 		AED0877BCDDE2ACEBB729FD2 /* PttButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F4B7EC94FF02153EB90C59D /* PttButton.swift */; };
 		B4B6C6BBCCE77D2E75937D6D /* AudioService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD12553BD432D1877B82F2F /* AudioService.swift */; };
 		BAB09629F79100DF2CEDD7CC /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61001A95260A59DA03124487 /* LoginView.swift */; };
 		BB26A7C878AC917761079CC1 /* Channel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79FE61506BFB445E498CF55A /* Channel.swift */; };
 		C3E8F78C6F5384270C57F2BE /* MumbleTcpConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615705E0C5A961EAC6EDE428 /* MumbleTcpConnection.swift */; };
+		CB99686B81C67C872D789B17 /* AlarmCountdownDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4434EDFF0E9662710C12DECF /* AlarmCountdownDialog.swift */; };
+		D2E754FFEBEAF59FBB37FB54 /* OpenAlarmsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B00045FDD98F1AF8848CB2D /* OpenAlarmsScreen.swift */; };
+		D33819F7FE2DDE57881445C7 /* AlarmAlertDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4569F2D98D0163CE9085C37E /* AlarmAlertDialog.swift */; };
 		D600487FF00A073EBF7DFD9D /* PushKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2FA91903C849703FA3A30DED /* PushKit.framework */; };
+		D8A9E159109D88DDA191C061 /* AudioCastScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11CEB34B8610C736FA971098 /* AudioCastScreen.swift */; };
 		D9FA99838B920179A9232F19 /* AudioEngineBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = 6833105BD2A02B53D2C2DBBC /* AudioEngineBridge.mm */; };
+		E1A2B3C4D5E6F7890ABCDEF2 /* EndAlarmAlertDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F7890ABCDEF1 /* EndAlarmAlertDialog.swift */; };
+		E1A2B3C4D5E6F7890ABCDEF4 /* PostAlarmRecordingDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F7890ABCDEF3 /* PostAlarmRecordingDialog.swift */; };
+		ED936B68CF35DF53CFC920C0 /* AudioCastViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02AFB15031D1771CBD576A51 /* AudioCastViewModel.swift */; };
 		EDDB92D40A73AA27DAFB7CAF /* speex_codec.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 284FC7B10FCCABBBD6E692B4 /* speex_codec.cpp */; };
+		F9B3928049AE95F77B3B227F /* AlarmRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = D97120C85153213FE538F55A /* AlarmRepository.swift */; };
 		FA9ECE6E9DE4A8723B7B14F3 /* MumbleConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5FBB42DA79FE276EB77601 /* MumbleConnection.swift */; };
 		FAF7700DCE2F97D105BC18FD /* MembersSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767F935D27512408E9F618C9 /* MembersSheet.swift */; };
 		FF9BF8C7E1B7238235111631 /* TransmissionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBC9C8454E3CB6CFCE39F1D /* TransmissionMode.swift */; };
@@ -67,26 +83,34 @@
 
 /* Begin PBXFileReference section */
 		014CDC4FE9CBBDF583587400 /* jitter_buffer.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = jitter_buffer.cpp; path = ../../../../Core/src/audio/jitter_buffer.cpp; sourceTree = "<group>"; };
+		02AFB15031D1771CBD576A51 /* AudioCastViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioCastViewModel.swift; sourceTree = "<group>"; };
 		03FD34D7E539538FF3536B14 /* ChannelViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelViewModel.swift; sourceTree = "<group>"; };
 		06D87CA17D78F7F369D16DB9 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
 		0C2495334455C7954408C421 /* user_audio_buffer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = user_audio_buffer.h; path = ../../../Core/include/user_audio_buffer.h; sourceTree = "<group>"; };
 		10E434BE64BB3355E6E97B57 /* audio_engine.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = audio_engine.mm; path = ../../../../Core/src/audio/audio_engine.mm; sourceTree = "<group>"; };
+		11CEB34B8610C736FA971098 /* AudioCastScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioCastScreen.swift; sourceTree = "<group>"; };
 		120FBF80F2C7E4B76198E76A /* speex_dsp.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = speex_dsp.cpp; path = ../../../../Core/src/audio/speex_dsp.cpp; sourceTree = "<group>"; };
 		14F9FC7B92D0601D7D61BECA /* ChannelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelView.swift; sourceTree = "<group>"; };
+		20B0A4BD641C4D8E0497201C /* CredentialsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CredentialsStore.swift; sourceTree = "<group>"; };
 		2142798EA2FB9C2792C6B7C4 /* Pods_SAYses.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_SAYses.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		284FC7B10FCCABBBD6E692B4 /* speex_codec.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = speex_codec.cpp; path = ../../../../Core/src/codec/speex_codec.cpp; sourceTree = "<group>"; };
 		286E023B3F74BAA079F85DAA /* AudioEngineBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioEngineBridge.h; sourceTree = "<group>"; };
 		2FA91903C849703FA3A30DED /* PushKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = PushKit.framework; path = System/Library/Frameworks/PushKit.framework; sourceTree = SDKROOT; };
 		30406EC7FE3B9E996B4B6C34 /* SAYsesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SAYsesTests.swift; sourceTree = "<group>"; };
 		31774FD154211F854B5A222C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		33705A009486368E024E8EC9 /* AudioCastModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioCastModels.swift; sourceTree = "<group>"; };
 		3D142C74BC30977E5E53C794 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
+		4434EDFF0E9662710C12DECF /* AlarmCountdownDialog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmCountdownDialog.swift; sourceTree = "<group>"; };
+		4569F2D98D0163CE9085C37E /* AlarmAlertDialog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmAlertDialog.swift; sourceTree = "<group>"; };
 		4A8F9608AA702F672ABF99E3 /* codec.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = codec.h; path = ../../../Core/include/codec.h; sourceTree = "<group>"; };
 		4C9D07A1C692630C6F385582 /* speex_dsp.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = speex_dsp.h; path = ../../../Core/include/speex_dsp.h; sourceTree = "<group>"; };
 		4EA4E349B9EF37009298CD38 /* ChannelListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelListViewModel.swift; sourceTree = "<group>"; };
 		4EBC9C8454E3CB6CFCE39F1D /* TransmissionMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransmissionMode.swift; sourceTree = "<group>"; };
+		507A7B4D2BC8659C5A486CE2 /* AlarmModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmModels.swift; sourceTree = "<group>"; };
 		51DBEB0B8825AC23F2F9FCE2 /* MumbleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MumbleService.swift; sourceTree = "<group>"; };
 		5773DBDAEFB677495E2F0B96 /* MumbleProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MumbleProtocol.swift; sourceTree = "<group>"; };
 		5A5FBB42DA79FE276EB77601 /* MumbleConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MumbleConnection.swift; sourceTree = "<group>"; };
+		5D7FA405A5D7576AEDA1435D /* AlarmSoundPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmSoundPicker.swift; sourceTree = "<group>"; };
 		61001A95260A59DA03124487 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		615705E0C5A961EAC6EDE428 /* MumbleTcpConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MumbleTcpConnection.swift; sourceTree = "<group>"; };
 		639C16E661D6CE402F49E52A /* Pods-SAYses.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SAYses.release.xcconfig"; path = "Target Support Files/Pods-SAYses/Pods-SAYses.release.xcconfig"; sourceTree = "<group>"; };
@@ -105,11 +129,13 @@
 		788093CD839F686FD4921A70 /* SAYsesTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SAYsesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		79FE61506BFB445E498CF55A /* Channel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Channel.swift; sourceTree = "<group>"; };
 		7BF79262DE38F5016B422AE5 /* opus_codec.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = opus_codec.cpp; path = ../../../../Core/src/codec/opus_codec.cpp; sourceTree = "<group>"; };
+		80741C985E8FDBFEDBF0A516 /* AlarmEntity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmEntity.swift; sourceTree = "<group>"; };
 		82A8B60D6B804FB5B3E74FED /* OpusCodecBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OpusCodecBridge.mm; sourceTree = "<group>"; };
 		8A90367E737EB7480E344A8A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8E69A3A231BCD9B9C22E3F16 /* SAYses.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SAYses.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		971D85971DD5C08DC5886FAF /* vad.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = vad.h; path = ../../../Core/include/vad.h; sourceTree = "<group>"; };
 		98F817704DCE3887588C490A /* ChannelListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelListView.swift; sourceTree = "<group>"; };
+		9B00045FDD98F1AF8848CB2D /* OpenAlarmsScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OpenAlarmsScreen.swift; sourceTree = "<group>"; };
 		9FB18D64F5EE416F9FF8C1B2 /* TransmissionModeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransmissionModeSheet.swift; sourceTree = "<group>"; };
 		A2A78B60D3CB4308A2CA22E5 /* OpusCodecBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpusCodecBridge.h; sourceTree = "<group>"; };
 		ADD12553BD432D1877B82F2F /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
@@ -119,8 +145,14 @@
 		CBBF7B9373A05F05FD2348F6 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		CC9A4945284B08B5F96D3F3D /* Pods-SAYses.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SAYses.debug.xcconfig"; path = "Target Support Files/Pods-SAYses/Pods-SAYses.debug.xcconfig"; sourceTree = "<group>"; };
 		CFD902823BA69DB60D629F35 /* ChannelRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelRowView.swift; sourceTree = "<group>"; };
+		D00A8DDCF485A445826D20CE /* VoiceRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceRecorder.swift; sourceTree = "<group>"; };
 		D1F70426CD30BAE07EFB43FA /* mumble_client.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = mumble_client.h; path = ../../../Core/include/mumble_client.h; sourceTree = "<group>"; };
+		D21F5413CFEB560099CEF608 /* LocationService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
+		D51BC07642B261C96F565FF2 /* AlarmSoundPlayer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmSoundPlayer.swift; sourceTree = "<group>"; };
 		D6596C313812F3F10071D44E /* SemparaAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemparaAPIClient.swift; sourceTree = "<group>"; };
+		D97120C85153213FE538F55A /* AlarmRepository.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmRepository.swift; sourceTree = "<group>"; };
+		E1A2B3C4D5E6F7890ABCDEF1 /* EndAlarmAlertDialog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EndAlarmAlertDialog.swift; sourceTree = "<group>"; };
+		E1A2B3C4D5E6F7890ABCDEF3 /* PostAlarmRecordingDialog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostAlarmRecordingDialog.swift; sourceTree = "<group>"; };
 		E3B1FB0E5D4155C90EBE7E78 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		E7B47165A9FFA18BAF097BAF /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
 		ECE915E0A76CA14CB317E1D3 /* AuthenticationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AuthenticationServices.framework; path = System/Library/Frameworks/AuthenticationServices.framework; sourceTree = SDKROOT; };
@@ -214,6 +246,8 @@
 			children = (
 				79FE61506BFB445E498CF55A /* Channel.swift */,
 				06D87CA17D78F7F369D16DB9 /* User.swift */,
+				507A7B4D2BC8659C5A486CE2 /* AlarmModels.swift */,
+				33705A009486368E024E8EC9 /* AudioCastModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -254,6 +288,9 @@
 			children = (
 				FDAB89DE09DDA69BB4B890A5 /* OfflineStatusBanner.swift */,
 				9FB18D64F5EE416F9FF8C1B2 /* TransmissionModeSheet.swift */,
+				5D7FA405A5D7576AEDA1435D /* AlarmSoundPicker.swift */,
+				4569F2D98D0163CE9085C37E /* AlarmAlertDialog.swift */,
+				E1A2B3C4D5E6F7890ABCDEF1 /* EndAlarmAlertDialog.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -271,10 +308,20 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		791E6BB12213AA1345EAF5AE /* AudioCast */ = {
+			isa = PBXGroup;
+			children = (
+				11CEB34B8610C736FA971098 /* AudioCastScreen.swift */,
+			);
+			name = AudioCast;
+			path = AudioCast;
+			sourceTree = "<group>";
+		};
 		79934C87C881036C5659CB39 /* Auth */ = {
 			isa = PBXGroup;
 			children = (
 				FF205812D9FDA95528503CAA /* KeycloakAuthService.swift */,
+				20B0A4BD641C4D8E0497201C /* CredentialsStore.swift */,
 			);
 			path = Auth;
 			sourceTree = "<group>";
@@ -380,6 +427,8 @@
 			isa = PBXGroup;
 			children = (
 				ADD12553BD432D1877B82F2F /* AudioService.swift */,
+				D00A8DDCF485A445826D20CE /* VoiceRecorder.swift */,
+				D51BC07642B261C96F565FF2 /* AlarmSoundPlayer.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -388,6 +437,9 @@
 			isa = PBXGroup;
 			children = (
 				7370DB9A5DF799493B594BEF /* AlarmTriggerButton.swift */,
+				4434EDFF0E9662710C12DECF /* AlarmCountdownDialog.swift */,
+				E1A2B3C4D5E6F7890ABCDEF3 /* PostAlarmRecordingDialog.swift */,
+				9B00045FDD98F1AF8848CB2D /* OpenAlarmsScreen.swift */,
 			);
 			path = Alarm;
 			sourceTree = "<group>";
@@ -430,6 +482,7 @@
 		C7CF8EA23698776FA7116491 /* Location */ = {
 			isa = PBXGroup;
 			children = (
+				D21F5413CFEB560099CEF608 /* LocationService.swift */,
 			);
 			path = Location;
 			sourceTree = "<group>";
@@ -471,6 +524,7 @@
 				103549A00CA85AD1E3042802 /* ChannelList */,
 				7DC1A61F3145304A13AB6A21 /* Login */,
 				33BF9C85B5C743209FB1AC40 /* Settings */,
+				791E6BB12213AA1345EAF5AE /* AudioCast */,
 			);
 			path = Screens;
 			sourceTree = "<group>";
@@ -478,6 +532,8 @@
 		F5731B614BFDC6552D3C5512 /* Storage */ = {
 			isa = PBXGroup;
 			children = (
+				80741C985E8FDBFEDBF0A516 /* AlarmEntity.swift */,
+				D97120C85153213FE538F55A /* AlarmRepository.swift */,
 			);
 			path = Storage;
 			sourceTree = "<group>";
@@ -488,6 +544,7 @@
 				3D142C74BC30977E5E53C794 /* AuthViewModel.swift */,
 				4EA4E349B9EF37009298CD38 /* ChannelListViewModel.swift */,
 				03FD34D7E539538FF3536B14 /* ChannelViewModel.swift */,
+				02AFB15031D1771CBD576A51 /* AudioCastViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -655,6 +712,22 @@
 				EDDB92D40A73AA27DAFB7CAF /* speex_codec.cpp in Sources */,
 				D9FA99838B920179A9232F19 /* AudioEngineBridge.mm in Sources */,
 				AD38F26AB855722929A30024 /* audio_engine.mm in Sources */,
+				ADD849C5F93128525F258968 /* AlarmModels.swift in Sources */,
+				ADBD4EA4FDFEDE10E107B163 /* LocationService.swift in Sources */,
+				581814CC4556E249CD83A9E1 /* VoiceRecorder.swift in Sources */,
+				856F5FADDAA790D8DF8BFD66 /* AlarmEntity.swift in Sources */,
+				F9B3928049AE95F77B3B227F /* AlarmRepository.swift in Sources */,
+				CB99686B81C67C872D789B17 /* AlarmCountdownDialog.swift in Sources */,
+				D2E754FFEBEAF59FBB37FB54 /* OpenAlarmsScreen.swift in Sources */,
+				05FB57307ACA6ED3B1180217 /* AlarmSoundPlayer.swift in Sources */,
+				70D81D1D3FC3F3010FE608D2 /* AlarmSoundPicker.swift in Sources */,
+				D33819F7FE2DDE57881445C7 /* AlarmAlertDialog.swift in Sources */,
+				E1A2B3C4D5E6F7890ABCDEF2 /* EndAlarmAlertDialog.swift in Sources */,
+				E1A2B3C4D5E6F7890ABCDEF4 /* PostAlarmRecordingDialog.swift in Sources */,
+				377B49364BEADEBC04A9BE33 /* CredentialsStore.swift in Sources */,
+				23929CF33DF7460BCA395887 /* AudioCastModels.swift in Sources */,
+				ED936B68CF35DF53CFC920C0 /* AudioCastViewModel.swift in Sources */,
+				D8A9E159109D88DDA191C061 /* AudioCastScreen.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -789,7 +862,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = KHLQ2SP75F;
+				DEVELOPMENT_TEAM = "";
 				GCC_ENABLE_CPP_EXCEPTIONS = YES;
 				GCC_ENABLE_CPP_RTTI = YES;
 				GCC_INPUT_FILETYPE = automatic;

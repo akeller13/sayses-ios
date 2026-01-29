@@ -9,12 +9,14 @@
 #include "codec.h"
 #include <memory>
 #include <vector>
+#include <mutex>
 
 @implementation OpusCodecBridge {
     std::unique_ptr<sayses::Codec> _codec;
     int _frameSize;
     int _sampleRate;
     std::vector<int16_t> _sampleBuffer;  // Buffer for accumulating samples
+    std::mutex _bufferMutex;  // Protects _sampleBuffer from concurrent access (IO thread + main thread)
 }
 
 - (instancetype)init {
@@ -84,6 +86,8 @@
         return;
     }
 
+    std::lock_guard<std::mutex> lock(_bufferMutex);
+
     // Add samples to buffer
     _sampleBuffer.insert(_sampleBuffer.end(), pcmData, pcmData + frameCount);
 
@@ -146,11 +150,15 @@
     if (_codec) {
         _codec->reset();
     }
-    _sampleBuffer.clear();
+    {
+        std::lock_guard<std::mutex> lock(_bufferMutex);
+        _sampleBuffer.clear();
+    }
     NSLog(@"[OpusCodecBridge] Reset (buffer cleared)");
 }
 
 - (void)clearBuffer {
+    std::lock_guard<std::mutex> lock(_bufferMutex);
     _sampleBuffer.clear();
 }
 

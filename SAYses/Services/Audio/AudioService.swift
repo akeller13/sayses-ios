@@ -20,17 +20,89 @@ class AudioService: ObservableObject {
     private var captureCallback: ((UnsafePointer<Int16>, Int) -> Void)?
     private var playbackCallback: ((UnsafeMutablePointer<Int16>, Int) -> Int)?
 
-    // Level update timer
-    private var levelUpdateTimer: Timer?
+    // Level monitoring task
+    private var levelMonitorTask: Task<Void, Never>?
 
     init() {
         setupAudioEngine()
+        setupInterruptionHandler()
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self)
         stopCapture()
         stopPlayback()
-        levelUpdateTimer?.invalidate()
+        levelMonitorTask?.cancel()
+    }
+
+    private func setupInterruptionHandler() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruptionEnded),
+            name: .audioSessionInterruptionEnded,
+            object: nil
+        )
+    }
+
+    @objc private func handleAudioInterruptionEnded() {
+        NSLog("[AudioService] Audio interruption ended - restarting audio engine")
+
+        // Ensure all work happens on main thread for thread safety
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            // Recreate the audio engine (Audio Units need to be restarted after interruption)
+            let wasCapturing = self.isCapturing
+            let wasPlaying = self.isPlaying
+            let savedCaptureCallback = self.captureCallback
+
+            // Stop everything first
+            if wasCapturing {
+                self.audioEngine?.stopCapture()
+            }
+            if wasPlaying {
+                self.audioEngine?.stopPlayback()
+            }
+
+            // Recreate the audio engine
+            self.audioEngine = nil
+            self.setupAudioEngine()
+
+            // Restart capture if it was running
+            if wasCapturing, let callback = savedCaptureCallback {
+                NSLog("[AudioService] Restarting capture after interruption")
+                self.isCapturing = false  // Reset state so startCapture works
+                self.captureCallback = callback
+                self.restartCaptureInternal()
+            }
+
+            // Restart playback if it was running
+            if wasPlaying {
+                NSLog("[AudioService] Restarting playback after interruption")
+                self.isPlaying = false  // Reset state so startPlayback works
+                _ = self.startMixedPlayback()
+            }
+        }
+    }
+
+    private func restartCaptureInternal() {
+        guard let engine = audioEngine, let callback = captureCallback else {
+            NSLog("[AudioService] Cannot restart capture - no engine or callback")
+            return
+        }
+
+        let success = engine.startCapture { [weak self] data, frames in
+            guard let self = self else { return }
+            self.captureCallback?(data, frames)
+        }
+
+        if success {
+            self.isCapturing = true
+            startLevelMonitoring()
+            NSLog("[AudioService] Capture restarted successfully")
+        } else {
+            NSLog("[AudioService] Failed to restart capture")
+        }
     }
 
     private func setupAudioEngine() {
@@ -197,17 +269,27 @@ class AudioService: ObservableObject {
     // MARK: - Level Monitoring
 
     private func startLevelMonitoring() {
-        levelUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self = self, let engine = self.audioEngine else { return }
-            DispatchQueue.main.async {
-                self.inputLevel = engine.inputLevel
-                self.isVoiceDetected = engine.isVoiceDetected
+        levelMonitorTask?.cancel()
+        levelMonitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self = self, let engine = self.audioEngine else { return }
+
+                let level = engine.inputLevel
+                let voiceDetected = engine.isVoiceDetected
+
+                await MainActor.run {
+                    self.inputLevel = level
+                    self.isVoiceDetected = voiceDetected
+                }
+
+                // 50ms interval (0.05 seconds)
+                try? await Task.sleep(nanoseconds: 50_000_000)
             }
         }
     }
 
     private func stopLevelMonitoring() {
-        levelUpdateTimer?.invalidate()
-        levelUpdateTimer = nil
+        levelMonitorTask?.cancel()
+        levelMonitorTask = nil
     }
 }

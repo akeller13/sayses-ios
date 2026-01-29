@@ -9,6 +9,8 @@ protocol MumbleTcpConnectionDelegate: AnyObject {
     func connectionStateChanged(_ state: NWConnection.State)
     func connectionReceivedMessage(type: MumbleMessageType, data: Data)
     func connectionError(_ error: Error)
+    func latencyUpdated(_ latencyMs: Int64)
+    func tlsCipherSuiteDetected(_ cipherSuite: String)
 }
 
 class MumbleTcpConnection {
@@ -22,6 +24,10 @@ class MumbleTcpConnection {
     private var isConnected = false
     private var pingTimer: DispatchSourceTimer?
     private var lastPingTime: UInt64 = 0
+    private var lastPingReceivedTime: UInt64 = 0  // Track last ping response for timeout detection
+
+    // Ping timeout: disconnect if no ping response for 10 seconds (matches Android)
+    private let pingTimeoutMs: UInt64 = 10000
 
     // MARK: - Public Methods
 
@@ -59,7 +65,9 @@ class MumbleTcpConnection {
 
         } catch {
             logger.error("Failed to load certificate: \(error.localizedDescription)")
-            delegate?.connectionError(error)
+            // Provide more detailed error message
+            let errorMessage = "Zertifikat konnte nicht geladen werden: \(error.localizedDescription)"
+            delegate?.connectionError(NSError(domain: "MumbleTcp", code: -1, userInfo: [NSLocalizedDescriptionKey: errorMessage]))
             return
         }
 
@@ -93,6 +101,8 @@ class MumbleTcpConnection {
         connection?.cancel()
         connection = nil
         isConnected = false
+        lastPingTime = 0
+        lastPingReceivedTime = 0
     }
 
     func sendMessage(type: MumbleMessageType, data: Data) {
@@ -130,6 +140,7 @@ class MumbleTcpConnection {
         switch state {
         case .ready:
             isConnected = true
+            extractTlsCipherSuite()
             startReceiving()
             startPingTimer()
             sendVersion()
@@ -143,6 +154,51 @@ class MumbleTcpConnection {
         }
 
         delegate?.connectionStateChanged(state)
+    }
+
+    private func extractTlsCipherSuite() {
+        guard let connection = connection else { return }
+
+        // Try to extract TLS metadata from connection
+        guard let tlsMetadata = connection.metadata(definition: NWProtocolTLS.definition) as? NWProtocolTLS.Metadata else {
+            delegate?.tlsCipherSuiteDetected("TLS")
+            return
+        }
+
+        let secProtocolMetadata = tlsMetadata.securityProtocolMetadata
+
+        // Get the negotiated TLS version and cipher suite
+        let cipherSuite = sec_protocol_metadata_get_negotiated_tls_ciphersuite(secProtocolMetadata)
+
+        // Format cipher suite for display
+        let cipherString = formatCipherSuite(cipherSuite)
+        delegate?.tlsCipherSuiteDetected(cipherString)
+    }
+
+    private func formatCipherSuite(_ cipherSuite: tls_ciphersuite_t) -> String {
+        // Map common cipher suites to readable names
+        switch cipherSuite {
+        case .RSA_WITH_AES_128_GCM_SHA256:
+            return "AES-128-GCM-SHA256"
+        case .RSA_WITH_AES_256_GCM_SHA384:
+            return "AES-256-GCM-SHA384"
+        case .ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
+            return "ECDHE-ECDSA-AES128-GCM-SHA256"
+        case .ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+            return "ECDHE-ECDSA-AES256-GCM-SHA384"
+        case .ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+            return "ECDHE-RSA-AES128-GCM-SHA256"
+        case .ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+            return "ECDHE-RSA-AES256-GCM-SHA384"
+        case .AES_128_GCM_SHA256:
+            return "TLS13-AES-128-GCM-SHA256"
+        case .AES_256_GCM_SHA384:
+            return "TLS13-AES-256-GCM-SHA384"
+        case .CHACHA20_POLY1305_SHA256:
+            return "TLS13-CHACHA20-POLY1305-SHA256"
+        default:
+            return "TLS (\(cipherSuite.rawValue))"
+        }
     }
 
     private func startReceiving() {
@@ -287,6 +343,18 @@ class MumbleTcpConnection {
         sendMessage(type: .ping, data: pingData)
     }
 
+    func handlePingResponse() {
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        // Track when we last received a ping response (for timeout detection)
+        lastPingReceivedTime = now
+
+        // Calculate latency if we have a valid send time
+        guard lastPingTime > 0 else { return }
+        let latency = Int64(now - lastPingTime)
+        delegate?.latencyUpdated(latency)
+    }
+
     func sendJoinChannel(channelId: UInt32) {
         let userData = MumbleMessages.buildUserState(channelId: channelId)
         sendMessage(type: .userState, data: userData)
@@ -309,12 +377,45 @@ class MumbleTcpConnection {
     // MARK: - Ping Timer
 
     private func startPingTimer() {
+        // Initialize ping received time to now (will be updated on first ping response)
+        lastPingReceivedTime = UInt64(Date().timeIntervalSince1970 * 1000)
+
         pingTimer = DispatchSource.makeTimerSource(queue: queue)
         pingTimer?.schedule(deadline: .now() + 5, repeating: 5)
         pingTimer?.setEventHandler { [weak self] in
-            self?.sendPing()
+            self?.checkPingTimeoutAndSend()
         }
         pingTimer?.resume()
+        logger.info("Ping timer started (interval: 5s, timeout: 10s)")
+    }
+
+    /// Check for ping timeout and send new ping
+    private func checkPingTimeoutAndSend() {
+        guard isConnected else { return }
+
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        // Check if we've missed too many ping responses (server not responding)
+        if lastPingReceivedTime > 0 {
+            let timeSinceLastPing = now - lastPingReceivedTime
+            if timeSinceLastPing > pingTimeoutMs {
+                logger.error("No ping response for \(timeSinceLastPing)ms - connection lost")
+                // Disconnect and let auto-reconnect handle it
+                let error = NSError(
+                    domain: "MumbleTcp",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Verbindung unterbrochen (keine Ping-Antwort)"]
+                )
+                isConnected = false
+                stopPingTimer()
+                connection?.cancel()
+                delegate?.connectionError(error)
+                return
+            }
+        }
+
+        // Send ping
+        sendPing()
     }
 
     private func stopPingTimer() {

@@ -3,15 +3,19 @@ import UIKit
 
 struct ChannelView: View {
     let channel: Channel
-    let mumbleService: MumbleService
+    @ObservedObject var mumbleService: MumbleService
     @State private var viewModel: ChannelViewModel
     @State private var showMembers = false
     @State private var showTransmissionMode = false
     @State private var showLeaveConfirmation = false
+    @State private var showAudioCast = false
     @State private var lastPttTapTime: Date?  // Time of last quick tap RELEASE
     @State private var pttPressStartTime: Date?  // When current press started
+    @State private var alarmTextVisible = true
+    @State private var showOpenAlarms = false
     @AppStorage("doubleClickToggleMode") private var doubleClickToggleMode = false
     @AppStorage("keepAwake") private var keepAwake = true
+    @AppStorage("transmissionMode") private var transmissionModeRaw = TransmissionMode.pushToTalk.rawValue
     @Environment(\.dismiss) private var dismiss
 
     init(channel: Channel, mumbleService: MumbleService) {
@@ -80,20 +84,11 @@ struct ChannelView: View {
                 }
 
                 Spacer()
-
-                // Alarm button area - fixed height to prevent layout jumps
-                VStack {
-                    if viewModel.canTriggerAlarm {
-                        AlarmTriggerButton(onTrigger: { viewModel.triggerAlarm() })
-                    }
-                }
-                .frame(height: viewModel.canTriggerAlarm ? 100 : 0)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
             }
 
             // Offline status banner at bottom
             OfflineStatusBanner(secondsUntilRetry: mumbleService.reconnectCountdown)
+                .allowsHitTesting(false)
         }
         .navigationBarBackButtonHidden(true)
         .toolbar {
@@ -106,18 +101,18 @@ struct ChannelView: View {
                 }
             }
 
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: {}) {
-                    Image(systemName: "bubble.left.and.bubble.right")
-                        .font(.title2)
-                }
-            }
         }
         .sheet(isPresented: $showMembers) {
             MembersSheet(channel: channel, members: viewModel.members)
         }
         .sheet(isPresented: $showTransmissionMode) {
             TransmissionModeSheet()
+        }
+        .sheet(isPresented: $showOpenAlarms) {
+            OpenAlarmsScreen(mumbleService: mumbleService)
+        }
+        .sheet(isPresented: $showAudioCast) {
+            AudioCastScreen(channel: channel, mumbleService: mumbleService)
         }
         .task {
             await viewModel.joinChannel()
@@ -129,7 +124,16 @@ struct ChannelView: View {
         }
         .onDisappear {
             viewModel.stopTransmitting()
-            UIApplication.shared.isIdleTimerDisabled = false
+            // Only disable idle timer if keepAwake setting is off
+            if !keepAwake {
+                UIApplication.shared.isIdleTimerDisabled = false
+            }
+        }
+        // React to transmission mode changes from menu (matches Android's LaunchedEffect pattern)
+        .onChange(of: transmissionModeRaw) { oldValue, newValue in
+            let oldMode = TransmissionMode(rawValue: oldValue) ?? .pushToTalk
+            let newMode = TransmissionMode(rawValue: newValue) ?? .pushToTalk
+            viewModel.handleTransmissionModeChange(from: oldMode, to: newMode)
         }
         .alert("Kanal verlassen?", isPresented: $showLeaveConfirmation) {
             Button("Bleiben", role: .cancel) {}
@@ -139,6 +143,16 @@ struct ChannelView: View {
             }
         } message: {
             Text("Möchtest du den Kanal wirklich verlassen?")
+        }
+        // Blink animation for ALARM text
+        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+            if !mumbleService.openAlarms.isEmpty {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    alarmTextVisible.toggle()
+                }
+            } else {
+                alarmTextVisible = true
+            }
         }
     }
 
@@ -199,6 +213,26 @@ struct ChannelView: View {
                     .font(.title)
                     .foregroundStyle(viewModel.isMuted ? .gray : .primary)
             }
+
+            // AudioCast button (only shown if user has permission)
+            if mumbleService.userPermissions.canManageAudiocast ||
+               mumbleService.userPermissions.canPlayAudiocast {
+                Button(action: { showAudioCast = true }) {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.title)
+                }
+            }
+
+            if !mumbleService.openAlarms.isEmpty {
+                Button(action: { showOpenAlarms = true }) {
+                    Text("ALARM")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundStyle(Color.alarmRed)
+                        .opacity(alarmTextVisible ? 1.0 : 0.3)
+                }
+            }
+
             Spacer()
         }
         .padding(.horizontal)

@@ -6,11 +6,15 @@ protocol MumbleConnectionDelegate: AnyObject {
     func channelsUpdated(_ channels: [Channel])
     func usersUpdated(_ users: [User])
     func serverInfoReceived(_ info: ServerInfo)
+    func serverVersionReceived(version: String, os: String, osVersion: String)
     func connectionRejected(reason: MumbleRejectReason, message: String)
     func connectionError(_ message: String)
     func permissionQueryReceived(channelId: UInt32, permissions: Int, flush: Bool)
+    func textMessageReceived(_ message: ParsedTextMessage)
     func audioReceived(session: UInt32, pcmData: UnsafePointer<Int16>, frames: Int, sequence: Int64)
     func userAudioEnded(session: UInt32)
+    func latencyUpdated(_ latencyMs: Int64)
+    func tlsCipherSuiteDetected(_ cipherSuite: String)
 }
 
 class MumbleConnection: MumbleTcpConnectionDelegate {
@@ -49,12 +53,21 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
         certificateP12Base64: String,
         certificatePassword: String
     ) {
+        print("[MumbleConnection] connect() called:")
+        print("[MumbleConnection]   host: \(host)")
+        print("[MumbleConnection]   port: \(port)")
+        print("[MumbleConnection]   username: \(username)")
+        print("[MumbleConnection]   certBase64 length: \(certificateP12Base64.count)")
+
         self.username = username
 
         guard let certificateData = Data(base64Encoded: certificateP12Base64) else {
-            delegate?.connectionError("Ungültiges Zertifikat-Format")
+            print("[MumbleConnection] ERROR: Failed to decode base64 certificate!")
+            delegate?.connectionError("Ungültiges Zertifikat-Format (Base64-Dekodierung fehlgeschlagen)")
             return
         }
+
+        print("[MumbleConnection] Certificate decoded: \(certificateData.count) bytes")
 
         // Reset state
         knownChannelIds.removeAll()
@@ -65,6 +78,7 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
         connectionState = .connecting
         delegate?.connectionStateChanged(.connecting)
 
+        print("[MumbleConnection] Starting TCP connection...")
         tcpConnection.connect(
             host: host,
             port: port,
@@ -101,6 +115,11 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
         tcpConnection.sendAudioPacket(opusData: opusData, sequenceNumber: sequenceNumber, isTerminator: isTerminator)
     }
 
+    func sendTreeMessage(_ channelId: UInt32, message: String) {
+        let data = MumbleMessages.buildTextMessage(channelId: channelId, message: message, isTree: true)
+        tcpConnection.sendMessage(type: .textMessage, data: data)
+    }
+
     func getChannelList() -> [Channel] {
         return Array(channels.values).sorted { $0.position < $1.position }
     }
@@ -114,15 +133,10 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
     }
 
     /// Update permissions for a channel
+    /// Note: flush=true means the server is sending authoritative permissions for THIS channel.
+    /// We do NOT reset all other channel permissions — each channel's permissions are preserved
+    /// until explicitly updated by a PermissionQuery response for that channel.
     func updateChannelPermissions(channelId: UInt32, permissions: Int, flush: Bool) {
-        if flush {
-            // Reset all permissions to unknown
-            for (id, var channel) in channels {
-                channel.permissions = -1
-                channels[id] = channel
-            }
-        }
-
         if var channel = channels[channelId] {
             channel.permissions = permissions
             channels[channelId] = channel
@@ -137,11 +151,8 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
         case .ready:
             connectionState = .connected
             delegate?.connectionStateChanged(.connected)
-            // Send authenticate after version is sent
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                guard let self = self else { return }
-                self.tcpConnection.sendAuthenticate(username: self.username)
-            }
+            // Send authenticate immediately after version is sent
+            tcpConnection.sendAuthenticate(username: self.username)
         case .failed(let error):
             connectionState = .failed
             delegate?.connectionError("Verbindungsfehler: \(error.localizedDescription)")
@@ -161,6 +172,8 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
         }
 
         switch type {
+        case .version:
+            handleVersion(data: data)
         case .serverSync:
             handleServerSync(data: data)
         case .channelState:
@@ -177,9 +190,11 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
             handleCodecVersion(data: data)
         case .permissionQuery:
             handlePermissionQuery(data: data)
+        case .textMessage:
+            handleTextMessage(data: data)
         case .ping:
-            // Ping response received, could calculate latency
-            break
+            // Ping response received - calculate latency
+            tcpConnection.handlePingResponse()
         case .udpTunnel:
             handleAudioPacket(data: data)
         default:
@@ -193,7 +208,21 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
         delegate?.connectionStateChanged(.failed)
     }
 
+    func latencyUpdated(_ latencyMs: Int64) {
+        delegate?.latencyUpdated(latencyMs)
+    }
+
+    func tlsCipherSuiteDetected(_ cipherSuite: String) {
+        delegate?.tlsCipherSuiteDetected(cipherSuite)
+    }
+
     // MARK: - Message Handlers
+
+    private func handleVersion(data: Data) {
+        let version = MumbleParsers.parseVersion(data: data)
+        print("[MumbleConnection] Version: release=\(version.release), os=\(version.os) \(version.osVersion)")
+        delegate?.serverVersionReceived(version: version.release, os: version.os, osVersion: version.osVersion)
+    }
 
     private func handleServerSync(data: Data) {
         let sync = MumbleParsers.parseServerSync(data: data)
@@ -269,15 +298,20 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
 
     private func handleUserState(data: Data) {
         let state = MumbleParsers.parseUserState(data: data)
-        print("[MumbleConnection] UserState: session=\(state.session), name=\(state.name), channel=\(state.channelId)")
+        print("[MumbleConnection] UserState: session=\(state.session), name=\(state.name), hasChannelId=\(state.hasChannelId), channel=\(state.channelId)")
 
-        // Update existing user or create new
-        var user = users[state.session] ?? User(session: state.session, name: "")
+        // Get existing user or create placeholder
+        let existingUser = users[state.session]
 
+        // Resolve channelId: use new value if present, otherwise keep existing (like Android)
+        let resolvedChannelId = state.hasChannelId ? state.channelId : (existingUser?.channelId ?? 0)
+
+        // Only store/update user if we have a name (new user) or user already exists (update)
         if !state.name.isEmpty {
-            user = User(
+            // New user or name update
+            let user = User(
                 session: state.session,
-                channelId: state.channelId != 0 ? state.channelId : user.channelId,
+                channelId: resolvedChannelId,
                 name: state.name,
                 isMuted: state.mute,
                 isDeafened: state.deaf,
@@ -285,21 +319,25 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
                 isSelfDeafened: state.selfDeaf,
                 isSuppressed: state.suppress
             )
-        } else if state.channelId != 0 {
-            // Just a channel change
-            user = User(
-                session: user.session,
-                channelId: state.channelId,
-                name: user.name,
-                isMuted: state.mute || user.isMuted,
-                isDeafened: state.deaf || user.isDeafened,
-                isSelfMuted: state.selfMute || user.isSelfMuted,
-                isSelfDeafened: state.selfDeaf || user.isSelfDeafened,
-                isSuppressed: state.suppress || user.isSuppressed
+            users[state.session] = user
+            print("[MumbleConnection] User stored: \(state.name) (session=\(state.session), channel=\(resolvedChannelId))")
+        } else if let existing = existingUser {
+            // Update existing user (channel change, mute state, etc.)
+            let user = User(
+                session: existing.session,
+                channelId: resolvedChannelId,
+                name: existing.name,
+                isMuted: state.mute || existing.isMuted,
+                isDeafened: state.deaf || existing.isDeafened,
+                isSelfMuted: state.selfMute || existing.isSelfMuted,
+                isSelfDeafened: state.selfDeaf || existing.isSelfDeafened,
+                isSuppressed: state.suppress || existing.isSuppressed
             )
+            users[state.session] = user
+            print("[MumbleConnection] User updated: \(existing.name) (session=\(state.session), channel=\(resolvedChannelId))")
         }
+        // If no name and no existing user, ignore (incomplete user state)
 
-        users[state.session] = user
         updateChannelUserCounts()
         delegate?.usersUpdated(getUserList())
     }
@@ -341,6 +379,21 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
 
         // Update channels to reflect new permissions
         delegate?.channelsUpdated(getChannelList())
+    }
+
+    private func handleTextMessage(data: Data) {
+        let message = MumbleParsers.parseTextMessage(data: data)
+
+        // Don't log full message content as it may be large JSON
+        let isTreeMessage = !message.treeIds.isEmpty
+        let isChannelMessage = !message.channelIds.isEmpty
+        let isDirectMessage = !message.sessions.isEmpty
+        let preview = message.message.prefix(50)
+
+        print("[MumbleConnection] TextMessage: actor=\(message.actor), tree=\(isTreeMessage), channel=\(isChannelMessage), direct=\(isDirectMessage), preview=\"\(preview)...\"")
+
+        // Forward to delegate for alarm processing
+        delegate?.textMessageReceived(message)
     }
 
     private func handleAudioPacket(data: Data) {

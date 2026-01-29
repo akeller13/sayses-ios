@@ -27,6 +27,10 @@ struct SettingsView: View {
                     Toggle("Doppelklick: PTT ↔ Ständig", isOn: $doubleClickToggleMode)
                 }
 
+                Section("Alarm") {
+                    AlarmSoundSettingRow()
+                }
+
                 Section("Info") {
                     LabeledContent("Version", value: "1.0.0")
                     LabeledContent("Build", value: "1")

@@ -250,6 +250,21 @@ struct MumbleMessages {
         return encoder.encode()
     }
 
+    /// Build a TextMessage for sending to a channel
+    /// If isTree is true, the message is sent to all users in the channel and subchannels
+    static func buildTextMessage(channelId: UInt32, message: String, isTree: Bool = false) -> Data {
+        let encoder = ProtobufEncoder()
+        // Field 4: tree_id (for tree message) or Field 3: channel_id (for channel message)
+        if isTree {
+            encoder.writeUInt32(fieldNumber: 4, value: channelId)
+        } else {
+            encoder.writeUInt32(fieldNumber: 3, value: channelId)
+        }
+        // Field 5: message
+        encoder.writeString(fieldNumber: 5, value: message)
+        return encoder.encode()
+    }
+
     /// Build audio packet for UDPTunnel
     /// Format: [header byte][varint sequence][varint frame header][opus data]
     /// Header: 3 bits type + 5 bits target
@@ -320,6 +335,13 @@ struct ParsedAudioPacket {
     var isValid: Bool = false
 }
 
+struct ParsedVersion {
+    var version: UInt32 = 0
+    var release: String = ""
+    var os: String = ""
+    var osVersion: String = ""
+}
+
 struct ParsedServerSync {
     var session: UInt32 = 0
     var maxBandwidth: UInt32 = 0
@@ -343,6 +365,7 @@ struct ParsedUserState {
     var name: String = ""
     var userId: UInt32 = 0
     var channelId: UInt32 = 0
+    var hasChannelId: Bool = false  // Track if channelId was explicitly set in the message
     var mute: Bool = false
     var deaf: Bool = false
     var suppress: Bool = false
@@ -377,9 +400,35 @@ struct ParsedPermissionQuery {
     var flush: Bool = false
 }
 
+/// Parsed text message from TextMessage
+struct ParsedTextMessage {
+    var actor: UInt32 = 0          // Sender session ID
+    var sessions: [UInt32] = []    // Target sessions (for direct messages)
+    var channelIds: [UInt32] = []  // Target channels (for channel messages)
+    var treeIds: [UInt32] = []     // Target tree channels (for tree messages)
+    var message: String = ""       // Message content (may be JSON for alarms)
+}
+
 // MARK: - Message Parsers
 
 struct MumbleParsers {
+
+    static func parseVersion(data: Data) -> ParsedVersion {
+        var result = ParsedVersion()
+        let decoder = ProtobufDecoder(data: data)
+
+        while !decoder.isAtEnd {
+            guard let (fieldNumber, wireType) = decoder.readTag() else { break }
+            switch fieldNumber {
+            case 1: result.version = decoder.readUInt32() ?? 0
+            case 2: result.release = decoder.readString() ?? ""
+            case 3: result.os = decoder.readString() ?? ""
+            case 4: result.osVersion = decoder.readString() ?? ""
+            default: decoder.skip(wireType: wireType)
+            }
+        }
+        return result
+    }
 
     static func parseServerSync(data: Data) -> ParsedServerSync {
         var result = ParsedServerSync()
@@ -432,7 +481,11 @@ struct MumbleParsers {
             case 2: result.actor = decoder.readUInt32() ?? 0
             case 3: result.name = decoder.readString() ?? ""
             case 4: result.userId = decoder.readUInt32() ?? 0
-            case 5: result.channelId = decoder.readUInt32() ?? 0
+            case 5:
+                if let channelId = decoder.readUInt32() {
+                    result.channelId = channelId
+                    result.hasChannelId = true
+                }
             case 6: result.mute = decoder.readBool() ?? false
             case 7: result.deaf = decoder.readBool() ?? false
             case 8: result.suppress = decoder.readBool() ?? false
@@ -508,6 +561,40 @@ struct MumbleParsers {
             case 1: result.channelId = decoder.readUInt32() ?? 0
             case 2: result.permissions = decoder.readUInt32() ?? 0
             case 3: result.flush = decoder.readBool() ?? false
+            default: decoder.skip(wireType: wireType)
+            }
+        }
+        return result
+    }
+
+    /// Parse TextMessage from server
+    /// Protobuf fields:
+    /// - 1: actor (uint32) - sender session
+    /// - 2: session (repeated uint32) - target sessions
+    /// - 3: channel_id (repeated uint32) - target channels
+    /// - 4: tree_id (repeated uint32) - target tree channels
+    /// - 5: message (string) - the message content
+    static func parseTextMessage(data: Data) -> ParsedTextMessage {
+        var result = ParsedTextMessage()
+        let decoder = ProtobufDecoder(data: data)
+
+        while !decoder.isAtEnd {
+            guard let (fieldNumber, wireType) = decoder.readTag() else { break }
+            switch fieldNumber {
+            case 1: result.actor = decoder.readUInt32() ?? 0
+            case 2:
+                if let session = decoder.readUInt32() {
+                    result.sessions.append(session)
+                }
+            case 3:
+                if let channelId = decoder.readUInt32() {
+                    result.channelIds.append(channelId)
+                }
+            case 4:
+                if let treeId = decoder.readUInt32() {
+                    result.treeIds.append(treeId)
+                }
+            case 5: result.message = decoder.readString() ?? ""
             default: decoder.skip(wireType: wireType)
             }
         }
