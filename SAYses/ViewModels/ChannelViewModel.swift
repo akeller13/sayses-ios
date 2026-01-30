@@ -221,18 +221,21 @@ class ChannelViewModel {
     // MARK: - Private
 
     private func loadSettings() {
-        let favoriteIds = UserDefaults.standard.array(forKey: "favoriteChannels") as? [UInt32] ?? []
-        isFavorite = favoriteIds.contains(channel.id)
+        // Load as [Int] for UserDefaults compatibility (must match ChannelListView)
+        let favoriteIds = UserDefaults.standard.array(forKey: "favoriteChannels") as? [Int] ?? []
+        isFavorite = favoriteIds.contains(Int(channel.id))
     }
 
     private func saveFavorite() {
-        var favoriteIds = UserDefaults.standard.array(forKey: "favoriteChannels") as? [UInt32] ?? []
+        // Save as [Int] for UserDefaults compatibility (must match ChannelListView)
+        var favoriteIds = UserDefaults.standard.array(forKey: "favoriteChannels") as? [Int] ?? []
+        let channelIdInt = Int(channel.id)
         if isFavorite {
-            if !favoriteIds.contains(channel.id) {
-                favoriteIds.append(channel.id)
+            if !favoriteIds.contains(channelIdInt) {
+                favoriteIds.append(channelIdInt)
             }
         } else {
-            favoriteIds.removeAll { $0 == channel.id }
+            favoriteIds.removeAll { $0 == channelIdInt }
         }
         UserDefaults.standard.set(favoriteIds, forKey: "favoriteChannels")
     }

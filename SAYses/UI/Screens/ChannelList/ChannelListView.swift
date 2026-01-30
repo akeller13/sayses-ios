@@ -287,7 +287,18 @@ struct ChannelListView: View {
                     Text("Kanäle")
                         .font(.title2)
 
+                    Button {
+                        showOnlyFavorites.toggle()
+                    } label: {
+                        Image(systemName: "star.fill")
+                            .font(.title3)
+                            .foregroundStyle(showOnlyFavorites ? Color(red: 1.0, green: 0.84, blue: 0) : .secondary)
+                    }
+                    .buttonStyle(.plain)
+
                     if !mumbleService.openAlarms.isEmpty {
+                        Spacer()
+
                         Button(action: { showOpenAlarms = true }) {
                             Text("ALARM")
                                 .font(.title2)
@@ -298,15 +309,6 @@ struct ChannelListView: View {
                     }
 
                     Spacer()
-
-                    Button {
-                        showOnlyFavorites.toggle()
-                    } label: {
-                        Image(systemName: "star.fill")
-                            .font(.title3)
-                            .foregroundStyle(showOnlyFavorites ? Color(red: 1.0, green: 0.84, blue: 0) : .secondary)
-                    }
-                    .buttonStyle(.plain)
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
