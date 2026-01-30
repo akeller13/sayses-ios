@@ -3,6 +3,7 @@ import Observation
 import AuthenticationServices
 
 @Observable
+@MainActor
 class AuthViewModel {
     var isAuthenticated = false
     var isCheckingAuth = true

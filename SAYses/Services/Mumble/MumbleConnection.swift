@@ -399,9 +399,6 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
     private func handleAudioPacket(data: Data) {
         let packet = MumbleParsers.parseAudioPacket(data: data)
 
-        // Debug logging for audio reception
-        NSLog("[MumbleConnection] Audio packet: valid=%d, session=%u, localSession=%u, codec=%d, dataLen=%d", packet.isValid ? 1 : 0, packet.senderSession, localSession, packet.codecType, packet.opusData.count)
-
         // Ignore invalid packets or packets from self
         guard packet.isValid else {
             print("[MumbleConnection] Ignoring invalid audio packet")
@@ -426,8 +423,6 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
             return
         }
 
-        NSLog("[MumbleConnection] Decoding audio: session=%u, seq=%lld, bytes=%d", packet.senderSession, packet.sequenceNumber, packet.opusData.count)
-
         // Decode on decoder queue to avoid blocking
         decoderQueue.async { [weak self] in
             self?.decodeAndDeliverAudio(packet: packet)
@@ -450,8 +445,6 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
             print("[MumbleConnection] Failed to decode audio from session \(packet.senderSession), result=\(decodedFrames)")
             return
         }
-
-        NSLog("[MumbleConnection] Decoded %d frames from session %u", decodedFrames, packet.senderSession)
 
         // Deliver decoded audio to delegate
         decodedPcmBuffer.withUnsafeBufferPointer { buffer in

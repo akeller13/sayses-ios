@@ -2344,7 +2344,6 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
 
     func audioReceived(session: UInt32, pcmData: UnsafePointer<Int16>, frames: Int, sequence: Int64) {
         // Pass decoded audio to C++ engine for per-user buffering, float mixing, and crossfade
-        NSLog("[MumbleService] audioReceived: session=%u, frames=%d, seq=%lld", session, frames, sequence)
         audioService.addUserAudio(userId: session, samples: pcmData, frames: frames, sequence: sequence)
 
         // Start mixed playback if not already running

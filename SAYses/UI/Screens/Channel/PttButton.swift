@@ -6,15 +6,11 @@ struct PttButton: View {
     let onPressed: () -> Void
     let onReleased: () -> Void
 
-    @State private var rotation: Double = 0
     @State private var isCurrentlyPressed: Bool = false
+    @State private var rotation: Double = 0
 
     private var buttonColor: Color {
         isTransmitting ? .pttActive : .pttInactive
-    }
-
-    private var scale: CGFloat {
-        isTransmitting ? 1.0 + CGFloat(audioLevel) * 0.15 : 1.0
     }
 
     var body: some View {
@@ -24,19 +20,14 @@ struct PttButton: View {
             .frame(width: 264, height: 264)
             .overlay {
                 ZStack {
-                    // Dashed rotating border - isolated from other animations
+                    // Dashed rotating border
                     DashedCircle(color: buttonColor)
-                        .drawingGroup()  // Rasterize Canvas to prevent redraw interference
                         .rotationEffect(.degrees(rotation))
-                        .animation(nil, value: isTransmitting)  // Prevent isTransmitting from affecting rotation
-                        .animation(nil, value: audioLevel)  // Prevent audioLevel from affecting rotation
 
-                    // Inner circle with color/scale animation
+                    // Inner circle
                     Circle()
                         .fill(buttonColor)
                         .padding(6)
-                        .scaleEffect(scale)
-                        .animation(.easeInOut(duration: 0.2), value: isTransmitting)
 
                     // Microphone icon
                     Image(systemName: "mic.fill")
@@ -60,15 +51,15 @@ struct PttButton: View {
                         }
                     }
             )
+            .onAppear {
+                withAnimation(.linear(duration: 40).repeatForever(autoreverses: false)) {
+                    rotation = 360
+                }
+            }
             .onDisappear {
                 if isCurrentlyPressed {
                     isCurrentlyPressed = false
                     onReleased()
-                }
-            }
-            .onAppear {
-                withAnimation(.linear(duration: 40).repeatForever(autoreverses: false)) {
-                    rotation = 360
                 }
             }
     }
