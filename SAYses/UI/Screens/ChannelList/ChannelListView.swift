@@ -281,6 +281,25 @@ struct ChannelListView: View {
 
     private var channelListContent: some View {
         List {
+            // ALARM row (only shown when there are open alarms)
+            if !mumbleService.openAlarms.isEmpty {
+                Section {
+                    HStack {
+                        Spacer()
+                        Button(action: { showOpenAlarms = true }) {
+                            Text("ALARM")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(Color.alarmRed)
+                                .opacity(alarmTextVisible ? 1.0 : 0.3)
+                        }
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .padding(.horizontal)
+                }
+            }
+
             // Channels section
             Section {
                 HStack {
@@ -296,24 +315,21 @@ struct ChannelListView: View {
                     }
                     .buttonStyle(.plain)
 
-                    if !mumbleService.openAlarms.isEmpty {
-                        Spacer()
-
-                        Button(action: { showOpenAlarms = true }) {
-                            Text("ALARM")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundStyle(Color.alarmRed)
-                                .opacity(alarmTextVisible ? 1.0 : 0.3)
-                        }
-                    }
-
                     Spacer()
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
                 .padding(.horizontal)
                 .padding(.top, 8)
+            }
+
+            // Search field
+            Section {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Suchen...", text: $searchText)
+                }
             }
 
             Section {
@@ -335,7 +351,6 @@ struct ChannelListView: View {
                 }
             }
         }
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Suchen...")
         .refreshable {
             await mumbleService.reconnect()
         }
