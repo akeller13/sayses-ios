@@ -6,6 +6,11 @@ enum ChannelListTab {
     case dispatcher
 }
 
+enum DispatcherSubTab {
+    case sendMessage  // "Meldung senden"
+    case serviceDesk  // "Servicedienst"
+}
+
 struct ChannelListView: View {
     @Environment(AuthViewModel.self) private var authViewModel
     @ObservedObject var mumbleService: MumbleService
@@ -17,6 +22,7 @@ struct ChannelListView: View {
     @State private var navigationPath = NavigationPath()
     @State private var showOnlyFavorites = false
     @State private var selectedTab: ChannelListTab = .channels
+    @State private var selectedDispatcherSubTab: DispatcherSubTab = .sendMessage
 
     // Alarm state
     @State private var showAlarmCountdown = false
@@ -290,6 +296,10 @@ struct ChannelListView: View {
         mumbleService.userPermissions.canCallDispatcher || mumbleService.userPermissions.canActAsDispatcher
     }
 
+    private var hasBothDispatcherPermissions: Bool {
+        mumbleService.userPermissions.canCallDispatcher && mumbleService.userPermissions.canActAsDispatcher
+    }
+
     private var channelListContent: some View {
         List {
             // Tab header section
@@ -370,12 +380,80 @@ struct ChannelListView: View {
                     }
                 }
             } else {
-                // Dispatcher tab content (placeholder)
-                Section {
-                    Text("Dispatcher-Inhalt folgt...")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 40)
+                // Dispatcher tab content
+                if hasBothDispatcherPermissions {
+                    // Sub-tab header (only if user has both permissions)
+                    Section {
+                        VStack(spacing: 0) {
+                            // Divider line
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.3))
+                                .frame(height: 1)
+
+                            // Sub-tabs
+                            HStack {
+                                // "Meldung" tab (left)
+                                Button {
+                                    selectedDispatcherSubTab = .sendMessage
+                                } label: {
+                                    Text("Meldung")
+                                        .font(.title3)
+                                        .fontWeight(selectedDispatcherSubTab == .sendMessage ? .bold : .regular)
+                                        .foregroundStyle(selectedDispatcherSubTab == .sendMessage ? .primary : .secondary)
+                                }
+                                .buttonStyle(.plain)
+
+                                Spacer()
+
+                                // "Servicedienst" tab (right)
+                                Button {
+                                    selectedDispatcherSubTab = .serviceDesk
+                                } label: {
+                                    Text("Servicedienst")
+                                        .font(.title3)
+                                        .fontWeight(selectedDispatcherSubTab == .serviceDesk ? .bold : .regular)
+                                        .foregroundStyle(selectedDispatcherSubTab == .serviceDesk ? .primary : .secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.top, 8)
+                        }
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .padding(.horizontal)
+
+                    // Content based on selected sub-tab
+                    if selectedDispatcherSubTab == .sendMessage {
+                        Section {
+                            Text("Meldung senden - Inhalt folgt...")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 40)
+                        }
+                    } else {
+                        Section {
+                            Text("Servicedienst - Inhalt folgt...")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 40)
+                        }
+                    }
+                } else {
+                    // Only one permission - show single content
+                    Section {
+                        if mumbleService.userPermissions.canCallDispatcher {
+                            Text("Meldung senden - Inhalt folgt...")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 40)
+                        } else {
+                            Text("Servicedienst - Inhalt folgt...")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 40)
+                        }
+                    }
                 }
             }
         }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Dialog displayed when an alarm is ended by another user
-/// Shows who ended the alarm with blue background and white text
+/// Shows who ended the alarm with green background and white text
 struct EndAlarmAlertDialog: View {
     let endAlarm: EndAlarmMessage
     let onDismiss: () -> Void
@@ -31,7 +31,7 @@ struct EndAlarmAlertDialog: View {
 
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 50))
-                            .foregroundStyle(Color.blue)
+                            .foregroundStyle(Color(red: 0x2E/255.0, green: 0x7D/255.0, blue: 0x32/255.0))
                     }
 
                     // Title
@@ -55,7 +55,7 @@ struct EndAlarmAlertDialog: View {
                         Text("OK")
                             .font(.title3)
                             .fontWeight(.bold)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(Color(red: 0x2E/255.0, green: 0x7D/255.0, blue: 0x32/255.0))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
                             .background(
@@ -68,7 +68,7 @@ struct EndAlarmAlertDialog: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.blue)
+                    .fill(Color(red: 0x2E/255.0, green: 0x7D/255.0, blue: 0x32/255.0))
             )
             .padding(.horizontal, 24)
         }
