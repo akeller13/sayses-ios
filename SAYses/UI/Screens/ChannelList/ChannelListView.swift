@@ -281,9 +281,10 @@ struct ChannelListView: View {
 
     private var channelListContent: some View {
         List {
-            // ALARM row (only shown when there are open alarms)
-            if !mumbleService.openAlarms.isEmpty {
-                Section {
+            // Header section (ALARM + Kanäle in one section for reduced spacing)
+            Section {
+                // ALARM row (only shown when there are open alarms)
+                if !mumbleService.openAlarms.isEmpty {
                     HStack {
                         Spacer()
                         Button(action: { showOpenAlarms = true }) {
@@ -298,10 +299,8 @@ struct ChannelListView: View {
                     .listRowBackground(Color.clear)
                     .padding(.horizontal)
                 }
-            }
 
-            // Channels section
-            Section {
+                // Kanäle row
                 HStack {
                     Text("Kanäle")
                         .font(.title2)
@@ -320,7 +319,7 @@ struct ChannelListView: View {
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
                 .padding(.horizontal)
-                .padding(.top, 8)
+                .padding(.top, mumbleService.openAlarms.isEmpty ? 8 : 0)
             }
 
             // Search field
