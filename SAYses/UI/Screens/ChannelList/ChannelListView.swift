@@ -390,7 +390,7 @@ struct ChannelListView: View {
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .lineLimit(1)
-                    .frame(maxWidth: 120)
+                    .frame(maxWidth: 180)
             }
         }
     }
