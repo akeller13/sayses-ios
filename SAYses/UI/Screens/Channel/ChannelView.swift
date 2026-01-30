@@ -101,6 +101,26 @@ struct ChannelView: View {
                 }
             }
 
+            ToolbarItem(placement: .topBarTrailing) {
+                if !mumbleService.openAlarms.isEmpty {
+                    Button(action: { showOpenAlarms = true }) {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "bell.fill")
+                                .font(.body)
+                                .foregroundStyle(Color.alarmRed)
+
+                            Text("\(mumbleService.openAlarms.count)")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(.white)
+                                .padding(4)
+                                .background(Color.alarmRed)
+                                .clipShape(Circle())
+                                .offset(x: 8, y: -8)
+                        }
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showMembers) {
             MembersSheet(channel: channel, members: viewModel.members)
@@ -220,16 +240,6 @@ struct ChannelView: View {
                 Button(action: { showAudioCast = true }) {
                     Image(systemName: "antenna.radiowaves.left.and.right")
                         .font(.title)
-                }
-            }
-
-            if !mumbleService.openAlarms.isEmpty {
-                Button(action: { showOpenAlarms = true }) {
-                    Text("ALARM")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundStyle(Color.alarmRed)
-                        .opacity(alarmTextVisible ? 1.0 : 0.3)
                 }
             }
 

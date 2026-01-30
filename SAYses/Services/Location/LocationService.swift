@@ -20,8 +20,8 @@ class LocationService: NSObject, ObservableObject {
     private var warmUpLocation: CLLocation?
     private var locationContinuation: CheckedContinuation<CLLocation?, Never>?
     private var trackingCallback: ((CLLocation) -> Void)?
-    private var trackingTimer: Timer?
     private var lastTrackedLocation: CLLocation?
+    private var lastCallbackTime: Date?  // For throttling callbacks
 
     /// Maximum age for cached warm-up location (30 seconds)
     private let maxWarmUpAge: TimeInterval = 30
@@ -165,7 +165,7 @@ class LocationService: NSObject, ObservableObject {
     // MARK: - Continuous Tracking (for alarm position updates)
 
     /// Start continuous location tracking for alarm updates
-    /// - Parameter callback: Called every 10 seconds with current location
+    /// - Parameter callback: Called every 10 seconds with current location (works in background)
     func startTracking(callback: @escaping (CLLocation) -> Void) {
         guard isLocationAvailable else {
             print("[LocationService] startTracking: Location not available")
@@ -177,44 +177,30 @@ class LocationService: NSObject, ObservableObject {
             return
         }
 
-        print("[LocationService] Starting continuous tracking (10 second interval)")
+        print("[LocationService] Starting continuous tracking (10 second interval, callback-based)")
         isTracking = true
         trackingCallback = callback
         lastTrackedLocation = currentLocation
+        lastCallbackTime = nil  // Reset throttle timer
 
         // Enable background updates if authorized
         if canTrackInBackground {
             locationManager.allowsBackgroundLocationUpdates = true
             locationManager.pausesLocationUpdatesAutomatically = false
+            print("[LocationService] Background location updates enabled")
+        } else {
+            print("[LocationService] WARNING: Background tracking not authorized (only 'When In Use')")
         }
 
         locationManager.startUpdatingLocation()
 
-        // Start 10-second timer to ensure regular position updates
-        trackingTimer?.invalidate()
-        trackingTimer = Timer.scheduledTimer(withTimeInterval: trackingInterval, repeats: true) { [weak self] _ in
-            self?.sendTrackedPosition()
-        }
-
         // Send initial position immediately if available
         if let location = currentLocation {
+            print("[LocationService] Sending initial position")
+            lastCallbackTime = Date()
             DispatchQueue.main.async {
                 callback(location)
             }
-        }
-    }
-
-    /// Send current position via tracking callback (called by timer)
-    private func sendTrackedPosition() {
-        guard isTracking, let callback = trackingCallback else { return }
-
-        // Use current location or last tracked location
-        if let location = currentLocation ?? lastTrackedLocation {
-            print("[LocationService] Timer: sending position update")
-            callback(location)
-            lastTrackedLocation = location
-        } else {
-            print("[LocationService] Timer: no location available to send")
         }
     }
 
@@ -226,10 +212,7 @@ class LocationService: NSObject, ObservableObject {
         isTracking = false
         trackingCallback = nil
         lastTrackedLocation = nil
-
-        // Stop the 10-second timer
-        trackingTimer?.invalidate()
-        trackingTimer = nil
+        lastCallbackTime = nil
 
         locationManager.allowsBackgroundLocationUpdates = false
         locationManager.pausesLocationUpdatesAutomatically = true
@@ -272,9 +255,19 @@ extension LocationService: CLLocationManagerDelegate {
             warmUpLocation = location
         }
 
-        // Keep track of last location for timer-based tracking
-        if isTracking {
+        // Tracking: call callback with throttling (every 10 seconds)
+        // This works in background because didUpdateLocations is called by iOS even in background
+        if isTracking, let callback = trackingCallback {
             lastTrackedLocation = location
+
+            let now = Date()
+            let shouldSend = lastCallbackTime == nil || now.timeIntervalSince(lastCallbackTime!) >= trackingInterval
+
+            if shouldSend {
+                lastCallbackTime = now
+                print("[LocationService] Callback: sending position update (throttled)")
+                callback(location)
+            }
         }
 
         // Fulfill waiting continuation
@@ -282,8 +275,6 @@ extension LocationService: CLLocationManagerDelegate {
             locationContinuation = nil
             continuation.resume(returning: location)
         }
-
-        // Note: Tracking callback is now called by timer every 10 seconds, not on every location update
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

@@ -770,19 +770,31 @@ struct AlarmSettings: Codable {
     let alarmCountdownDuration: Int
     let gpsWaitDuration: Int
     let alarmVoiceNoteDuration: Int
+    let dispatcherAlias: String
+    let dispatcherButtonHoldTime: Float
+    let dispatcherGpsWaitTime: Int
+    let dispatcherVoiceMaxDuration: Int
 
     enum CodingKeys: String, CodingKey {
         case alarmHoldDuration = "alarm_hold_duration"
         case alarmCountdownDuration = "alarm_countdown_duration"
         case gpsWaitDuration = "gps_wait_duration"
         case alarmVoiceNoteDuration = "alarm_voice_note_duration"
+        case dispatcherAlias = "dispatcher_alias"
+        case dispatcherButtonHoldTime = "dispatcher_button_hold_time"
+        case dispatcherGpsWaitTime = "dispatcher_gps_wait_time"
+        case dispatcherVoiceMaxDuration = "dispatcher_voice_max_duration"
     }
 
     static let defaults = AlarmSettings(
         alarmHoldDuration: 3.0,
         alarmCountdownDuration: 5,
         gpsWaitDuration: 30,
-        alarmVoiceNoteDuration: 20
+        alarmVoiceNoteDuration: 20,
+        dispatcherAlias: "Zentrale",
+        dispatcherButtonHoldTime: 0.5,
+        dispatcherGpsWaitTime: 30,
+        dispatcherVoiceMaxDuration: 20
     )
 }
 
@@ -803,6 +815,8 @@ struct MumbleCredentials: Codable {
     let canEndAlarm: Bool?
     let canManageAudiocast: Bool?
     let canPlayAudiocast: Bool?
+    let canCallDispatcher: Bool?
+    let canActAsDispatcher: Bool?
     let tenantChannelId: Int?
 
     var displayName: String {
@@ -831,6 +845,8 @@ struct MumbleCredentials: Codable {
         case canEndAlarm = "can_end_alarm"
         case canManageAudiocast = "can_manage_audiocast"
         case canPlayAudiocast = "can_play_audiocast"
+        case canCallDispatcher = "can_call_dispatcher"
+        case canActAsDispatcher = "can_act_as_dispatcher"
         case tenantChannelId = "tenant_channel_id"
     }
 }
@@ -843,6 +859,8 @@ struct UserAlarmPermissionsResponse: Codable {
     let canEndAlarm: Bool
     let canManageAudiocast: Bool
     let canPlayAudiocast: Bool
+    let canCallDispatcher: Bool
+    let canActAsDispatcher: Bool
 
     enum CodingKeys: String, CodingKey {
         case canReceiveAlarm = "can_receive_alarm"
@@ -850,6 +868,8 @@ struct UserAlarmPermissionsResponse: Codable {
         case canEndAlarm = "can_end_alarm"
         case canManageAudiocast = "can_manage_audiocast"
         case canPlayAudiocast = "can_play_audiocast"
+        case canCallDispatcher = "can_call_dispatcher"
+        case canActAsDispatcher = "can_act_as_dispatcher"
     }
 }
 

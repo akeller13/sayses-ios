@@ -1,6 +1,11 @@
 import SwiftUI
 import UIKit
 
+enum ChannelListTab {
+    case channels
+    case dispatcher
+}
+
 struct ChannelListView: View {
     @Environment(AuthViewModel.self) private var authViewModel
     @ObservedObject var mumbleService: MumbleService
@@ -11,6 +16,7 @@ struct ChannelListView: View {
     @State private var favoriteIds: Set<UInt32> = []
     @State private var navigationPath = NavigationPath()
     @State private var showOnlyFavorites = false
+    @State private var selectedTab: ChannelListTab = .channels
 
     // Alarm state
     @State private var showAlarmCountdown = false
@@ -87,8 +93,9 @@ struct ChannelListView: View {
                 }
             }
             // Alarm button - using safeAreaInset to not interfere with NavigationStack
+            // Only show on channels tab, not on dispatcher tab
             .safeAreaInset(edge: .bottom) {
-                if mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized && !mumbleService.hasOwnOpenAlarm {
+                if selectedTab == .channels && mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized && !mumbleService.hasOwnOpenAlarm {
                     AlarmTriggerButton(
                         holdDuration: Double(mumbleService.alarmSettings.alarmHoldDuration),
                         onHoldStart: {
@@ -279,74 +286,96 @@ struct ChannelListView: View {
         }
     }
 
+    private var hasDispatcherPermission: Bool {
+        mumbleService.userPermissions.canCallDispatcher || mumbleService.userPermissions.canActAsDispatcher
+    }
+
     private var channelListContent: some View {
         List {
-            // Header section (ALARM + Kanäle in one section for reduced spacing)
+            // Tab header section
             Section {
-                // ALARM row (only shown when there are open alarms)
-                if !mumbleService.openAlarms.isEmpty {
-                    HStack {
-                        Spacer()
-                        Button(action: { showOpenAlarms = true }) {
-                            Text("ALARM")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundStyle(Color.alarmRed)
-                                .opacity(alarmTextVisible ? 1.0 : 0.3)
-                        }
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .padding(.horizontal)
-                }
-
-                // Kanäle row
                 HStack {
-                    Text("Kanäle")
-                        .font(.title2)
-
+                    // Kanäle tab (left)
                     Button {
-                        showOnlyFavorites.toggle()
+                        selectedTab = .channels
                     } label: {
-                        Image(systemName: "star.fill")
-                            .font(.title3)
-                            .foregroundStyle(showOnlyFavorites ? Color(red: 1.0, green: 0.84, blue: 0) : .secondary)
+                        Text("Kanäle")
+                            .font(.title2)
+                            .fontWeight(selectedTab == .channels ? .bold : .regular)
+                            .foregroundStyle(selectedTab == .channels ? .primary : .secondary)
                     }
                     .buttonStyle(.plain)
 
+                    // Favorites star (only shown when channels tab is active)
+                    if selectedTab == .channels {
+                        Button {
+                            showOnlyFavorites.toggle()
+                        } label: {
+                            Image(systemName: "star.fill")
+                                .font(.title3)
+                                .foregroundStyle(showOnlyFavorites ? Color(red: 1.0, green: 0.84, blue: 0) : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
                     Spacer()
+
+                    // Dispatcher tab (right, only if user has permission)
+                    if hasDispatcherPermission {
+                        Button {
+                            selectedTab = .dispatcher
+                        } label: {
+                            Text(mumbleService.alarmSettings.dispatcherAlias)
+                                .font(.title2)
+                                .fontWeight(selectedTab == .dispatcher ? .bold : .regular)
+                                .foregroundStyle(selectedTab == .dispatcher ? .primary : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
                 .padding(.horizontal)
-                .padding(.top, mumbleService.openAlarms.isEmpty ? 8 : 0)
+                .padding(.top, 8)
             }
 
-            // Search field
-            Section {
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Suchen...", text: $searchText)
-                }
-            }
-
-            Section {
-                ForEach(filteredChannels) { channel in
-                    ChannelRowButton(
-                        channel: channel,
-                        isFavorite: favoriteIds.contains(channel.id),
-                        onTap: { joinAndNavigate(channel) }
-                    )
-                    .swipeActions(edge: .trailing) {
-                        Button(action: { toggleFavorite(channel) }) {
-                            Label(
-                                favoriteIds.contains(channel.id) ? "Entfernen" : "Favorit",
-                                systemImage: favoriteIds.contains(channel.id) ? "star.slash" : "star.fill"
-                            )
-                        }
-                        .tint(.yellow)
+            // Content based on selected tab
+            if selectedTab == .channels {
+                // Search field
+                Section {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Suchen...", text: $searchText)
                     }
+                }
+
+                // Channel list
+                Section {
+                    ForEach(filteredChannels) { channel in
+                        ChannelRowButton(
+                            channel: channel,
+                            isFavorite: favoriteIds.contains(channel.id),
+                            onTap: { joinAndNavigate(channel) }
+                        )
+                        .swipeActions(edge: .trailing) {
+                            Button(action: { toggleFavorite(channel) }) {
+                                Label(
+                                    favoriteIds.contains(channel.id) ? "Entfernen" : "Favorit",
+                                    systemImage: favoriteIds.contains(channel.id) ? "star.slash" : "star.fill"
+                                )
+                            }
+                            .tint(.yellow)
+                        }
+                    }
+                }
+            } else {
+                // Dispatcher tab content (placeholder)
+                Section {
+                    Text("Dispatcher-Inhalt folgt...")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 40)
                 }
             }
         }
@@ -595,6 +624,10 @@ struct InfoView: View {
                     LabeledContent("Countdown-Dauer", value: "\(mumbleService.alarmSettings.alarmCountdownDuration)s")
                     LabeledContent("Wartezeit GPS-Fix", value: "\(mumbleService.alarmSettings.gpsWaitDuration)s")
                     LabeledContent("Max. Dauer Alarm-Sprachnotiz", value: "\(mumbleService.alarmSettings.alarmVoiceNoteDuration)s")
+                    LabeledContent("Dispatcher Alias", value: mumbleService.alarmSettings.dispatcherAlias)
+                    LabeledContent("Haltezeit Dispatcher-Button", value: formatHoldDuration(mumbleService.alarmSettings.dispatcherButtonHoldTime))
+                    LabeledContent("Wartezeit GPS Dispatcher", value: "\(mumbleService.alarmSettings.dispatcherGpsWaitTime)s")
+                    LabeledContent("Max. Dauer Dispatcher-Sprachnotiz", value: "\(mumbleService.alarmSettings.dispatcherVoiceMaxDuration)s")
                     LabeledContent("Letzte Aktualisierung", value: formatTimestamp(mumbleService.lastSettingsUpdate))
                 }
 
@@ -604,6 +637,8 @@ struct InfoView: View {
                     PermissionRow(label: "Alarme beenden", hasPermission: mumbleService.userPermissions.canEndAlarm)
                     PermissionRow(label: "AudioCast verwalten", hasPermission: mumbleService.userPermissions.canManageAudiocast)
                     PermissionRow(label: "AudioCast abspielen", hasPermission: mumbleService.userPermissions.canPlayAudiocast)
+                    PermissionRow(label: "Dispatcher rufen", hasPermission: mumbleService.userPermissions.canCallDispatcher)
+                    PermissionRow(label: "Als Dispatcher agieren", hasPermission: mumbleService.userPermissions.canActAsDispatcher)
                 }
             }
             .navigationTitle("Information")

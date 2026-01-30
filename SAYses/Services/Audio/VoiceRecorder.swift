@@ -256,6 +256,34 @@ class VoicePlayer: NSObject, ObservableObject {
 
             // NOTE: Audio session is already configured and active via AppDelegate.
             // Do NOT reconfigure category or deactivate — it would kill Mumble audio.
+            // But we DO need to switch from .voiceChat mode to .default mode temporarily,
+            // because .voiceChat mode routes audio to receiver (earpiece) for telephony.
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setMode(.default)
+                print("[VoicePlayer] Audio mode set to .default")
+
+                // Check if headset is connected - if not, force speaker output
+                // (setMode(.voiceChat) may have set route to receiver)
+                let outputs = session.currentRoute.outputs
+                let hasExternalOutput = outputs.contains { port in
+                    port.portType == .headphones ||
+                    port.portType == .bluetoothA2DP ||
+                    port.portType == .bluetoothHFP ||
+                    port.portType == .bluetoothLE ||
+                    port.portType == .carAudio ||
+                    port.portType == .airPlay
+                }
+
+                if !hasExternalOutput {
+                    try session.overrideOutputAudioPort(.speaker)
+                    print("[VoicePlayer] No headset detected, routing to speaker")
+                } else {
+                    print("[VoicePlayer] External output detected, using current route")
+                }
+            } catch {
+                print("[VoicePlayer] Failed to configure audio for playback: \(error)")
+            }
 
             audioPlayer = try AVAudioPlayer(contentsOf: url)
             audioPlayer?.delegate = self
@@ -284,7 +312,18 @@ class VoicePlayer: NSObject, ObservableObject {
         currentTime = 0
         stopTimer()
 
-        // NOTE: Do NOT deactivate audio session — Mumble audio needs it active.
+        // Restore .voiceChat mode for Mumble audio
+        restoreVoiceChatMode()
+    }
+
+    /// Restore audio session to .voiceChat mode for Mumble
+    private func restoreVoiceChatMode() {
+        do {
+            try AVAudioSession.sharedInstance().setMode(.voiceChat)
+            print("[VoicePlayer] Audio mode restored to .voiceChat")
+        } catch {
+            print("[VoicePlayer] Failed to restore audio mode: \(error)")
+        }
     }
 
     /// Toggle play/stop
@@ -314,6 +353,9 @@ extension VoicePlayer: AVAudioPlayerDelegate {
         isPlaying = false
         currentTime = 0
         stopTimer()
+
+        // Restore .voiceChat mode for Mumble audio
+        restoreVoiceChatMode()
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {

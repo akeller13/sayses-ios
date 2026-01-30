@@ -124,7 +124,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
     /// Check if current user has an own open alarm (cannot trigger another while one is active)
     var hasOwnOpenAlarm: Bool {
         guard let username = credentials?.username else { return false }
-        return openAlarms.contains { $0.triggeredByUsername == username }
+        // Use case-insensitive comparison (backend might return different case)
+        let usernameLower = username.lowercased()
+        return openAlarms.contains { $0.triggeredByUsername.lowercased() == usernameLower }
     }
 
     private var audioLevelObserver: NSKeyValueObservation?
@@ -288,7 +290,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
                     canTriggerAlarm: response.canTriggerAlarm,
                     canEndAlarm: response.canEndAlarm,
                     canManageAudiocast: response.canManageAudiocast,
-                    canPlayAudiocast: response.canPlayAudiocast
+                    canPlayAudiocast: response.canPlayAudiocast,
+                    canCallDispatcher: response.canCallDispatcher,
+                    canActAsDispatcher: response.canActAsDispatcher
                 )
             }
 
@@ -898,7 +902,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
                     canTriggerAlarm: creds.canTriggerAlarm ?? false,
                     canEndAlarm: creds.canEndAlarm ?? false,
                     canManageAudiocast: creds.canManageAudiocast ?? false,
-                    canPlayAudiocast: creds.canPlayAudiocast ?? false
+                    canPlayAudiocast: creds.canPlayAudiocast ?? false,
+                    canCallDispatcher: creds.canCallDispatcher ?? false,
+                    canActAsDispatcher: creds.canActAsDispatcher ?? false
                 )
             }
 
@@ -999,7 +1005,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
                 canTriggerAlarm: creds.canTriggerAlarm ?? false,
                 canEndAlarm: creds.canEndAlarm ?? false,
                 canManageAudiocast: creds.canManageAudiocast ?? false,
-                canPlayAudiocast: creds.canPlayAudiocast ?? false
+                canPlayAudiocast: creds.canPlayAudiocast ?? false,
+                canCallDispatcher: creds.canCallDispatcher ?? false,
+                canActAsDispatcher: creds.canActAsDispatcher ?? false
             )
         }
 
@@ -1776,10 +1784,15 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
         }
 
         let alarms = repository.getOpenAlarms()
-        print("[MumbleService] Checking for own open alarms to resume tracking (username=\(username), openAlarms=\(alarms.count))")
+        print("[MumbleService] Checking for own open alarms to resume tracking (openAlarms=\(alarms.count))")
 
-        // Find our own alarm
-        guard let ownAlarm = alarms.first(where: { $0.triggeredByUsername == username }) else {
+        // Find our own alarm - try exact match first, then case-insensitive
+        var ownAlarm = alarms.first(where: { $0.triggeredByUsername == username })
+        if ownAlarm == nil {
+            // Fallback: case-insensitive match (backend might return different case)
+            ownAlarm = alarms.first(where: { $0.triggeredByUsername.lowercased() == username.lowercased() })
+        }
+        guard let ownAlarm = ownAlarm else {
             print("[MumbleService] No own open alarm found - not resuming position tracking")
             return
         }
@@ -2477,13 +2490,17 @@ struct UserPermissions {
     let canEndAlarm: Bool
     let canManageAudiocast: Bool
     let canPlayAudiocast: Bool
+    let canCallDispatcher: Bool
+    let canActAsDispatcher: Bool
 
     static let none = UserPermissions(
         canReceiveAlarm: false,
         canTriggerAlarm: false,
         canEndAlarm: false,
         canManageAudiocast: false,
-        canPlayAudiocast: false
+        canPlayAudiocast: false,
+        canCallDispatcher: false,
+        canActAsDispatcher: false
     )
 }
 
