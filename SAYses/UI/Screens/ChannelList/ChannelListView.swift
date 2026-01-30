@@ -389,6 +389,8 @@ struct ChannelListView: View {
                 Text(mumbleService.currentUserProfile?.effectiveName ?? "")
                     .font(.subheadline)
                     .fontWeight(.medium)
+                    .lineLimit(1)
+                    .frame(maxWidth: 120)
             }
         }
     }
