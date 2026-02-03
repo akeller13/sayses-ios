@@ -11,6 +11,14 @@ enum DispatcherSubTab {
     case serviceDesk  // "Servicedienst"
 }
 
+/// Info struct for dispatcher recording dialog to avoid SwiftUI state timing issues
+/// Using .fullScreenCover(item:) ensures values are captured at presentation time
+struct DispatcherRecordingInfo: Identifiable {
+    let id = UUID()
+    let remainingSeconds: Int
+    let dispatcherAlias: String
+}
+
 struct ChannelListView: View {
     @Environment(AuthViewModel.self) private var authViewModel
     @ObservedObject var mumbleService: MumbleService
@@ -32,6 +40,9 @@ struct ChannelListView: View {
     // Post-alarm recording state
     @State private var showPostAlarmRecording = false
     @State private var remainingRecordingTime = 0
+
+    // Dispatcher request state - using optional struct to avoid SwiftUI state timing issues
+    @State private var dispatcherRecordingInfo: DispatcherRecordingInfo? = nil
 
     // Settings from AppStorage
     @AppStorage("transmissionMode") private var transmissionModeRaw = TransmissionMode.pushToTalk.rawValue
@@ -91,18 +102,27 @@ struct ChannelListView: View {
                 .navigationDestination(for: Channel.self) { channel in
                     ChannelView(channel: channel, mumbleService: mumbleService)
                         .onAppear {
+                            print("[ChannelListView] ChannelView appeared for channel \(channel.id)")
                             mumbleService.currentlyViewedChannelId = channel.id
                         }
                         .onDisappear {
+                            print("[ChannelListView] ChannelView disappeared for channel \(channel.id)")
                             mumbleService.currentlyViewedChannelId = nil
                         }
+                }
+                .onChange(of: navigationPath) { oldPath, newPath in
+                    // Sync currentlyViewedChannelId with navigation state for reliability
+                    if newPath.isEmpty {
+                        mumbleService.currentlyViewedChannelId = nil
+                    }
                 }
             }
             // Alarm button - using safeAreaInset to not interfere with NavigationStack
             // Only show on channels tab, not on dispatcher tab
             .safeAreaInset(edge: .bottom) {
-                if selectedTab == .channels && mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized && !mumbleService.hasOwnOpenAlarm {
+                if selectedTab == .channels && mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized {
                     AlarmTriggerButton(
+                        isEnabled: !mumbleService.hasOwnOpenAlarm,
                         holdDuration: Double(mumbleService.alarmSettings.alarmHoldDuration),
                         onHoldStart: {
                             // Phase 1 start: Begin GPS warm-up
@@ -126,7 +146,37 @@ struct ChannelListView: View {
             // Offline status banner at bottom
             OfflineStatusBanner(secondsUntilRetry: mumbleService.reconnectCountdown)
                 .allowsHitTesting(false)
+
+            // "Meldung abgebrochen" toast - appears at top center
+            if mumbleService.showDispatcherCancelledToast {
+                VStack {
+                    Text("Meldung abgebrochen")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(
+                            Capsule()
+                                .fill(Color.black.opacity(0.8))
+                        )
+                        .padding(.top, 60)
+
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .onAppear {
+                    // Auto-hide after 2 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            mumbleService.showDispatcherCancelledToast = false
+                        }
+                    }
+                }
+                .allowsHitTesting(false)
+            }
         }
+        .animation(.easeInOut(duration: 0.3), value: mumbleService.showDispatcherCancelledToast)
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .environment(authViewModel)
@@ -174,6 +224,28 @@ struct ChannelListView: View {
         .sheet(isPresented: $showOpenAlarms) {
             OpenAlarmsScreen(mumbleService: mumbleService)
         }
+        .fullScreenCover(item: $dispatcherRecordingInfo) { info in
+            DispatcherRecordingDialog(
+                remainingSeconds: info.remainingSeconds,
+                dispatcherAlias: info.dispatcherAlias,
+                onSubmit: {
+                    // User submitted recording
+                    print("[ChannelListView] DispatcherRecordingDialog onSubmit called")
+                    dispatcherRecordingInfo = nil
+                    Task {
+                        await mumbleService.submitDispatcherVoiceRecording()
+                    }
+                },
+                onCancel: {
+                    // User cancelled recording
+                    print("[ChannelListView] DispatcherRecordingDialog onCancel called")
+                    dispatcherRecordingInfo = nil
+                    Task {
+                        await mumbleService.cancelDispatcherVoiceRecording()
+                    }
+                }
+            )
+        }
         .task {
             loadFavorites()
             await mumbleService.connectWithStoredCredentials()
@@ -183,11 +255,31 @@ struct ChannelListView: View {
                 UIApplication.shared.isIdleTimerDisabled = true
             }
         }
+        // Start/stop dispatcher history SSE stream based on tab selection
+        .onChange(of: selectedTab) { oldValue, newValue in
+            if newValue == .dispatcher {
+                print("[ChannelListView] Dispatcher tab selected - starting SSE stream")
+                mumbleService.startDispatcherHistoryStream()
+            } else if oldValue == .dispatcher {
+                print("[ChannelListView] Leaving dispatcher tab - stopping SSE stream")
+                mumbleService.stopDispatcherHistoryStream()
+            }
+        }
         // Handle auto-navigation from server channel changes
         .onReceive(mumbleService.$navigateToChannel) { channelId in
             guard let channelId = channelId else { return }
             if let channel = mumbleService.getChannel(channelId) {
-                // Navigate to the channel
+                navigationPath.append(channel)
+                mumbleService.navigateToChannel = nil
+            } else {
+                // Channel not yet in list - will retry on next channels update
+                print("[ChannelListView] Channel \(channelId) not found for navigation, waiting...")
+            }
+        }
+        // Retry navigation when channels update (handles timing issues)
+        .onReceive(mumbleService.$channels) { _ in
+            guard let channelId = mumbleService.navigateToChannel else { return }
+            if let channel = mumbleService.getChannel(channelId) {
                 navigationPath.append(channel)
                 mumbleService.navigateToChannel = nil
             }
@@ -197,6 +289,18 @@ struct ChannelListView: View {
             // Pop back to root (channel list)
             navigationPath = NavigationPath()
             mumbleService.navigateBackToList = false
+        }
+        // Direct observation of local user channel (more reliable than onAppear/onDisappear)
+        // When user is moved to tenant/root channel while viewing another channel, pop back to list
+        .onChange(of: mumbleService.localUserChannelId) { oldValue, newValue in
+            // Check if we're viewing a channel (navigationPath not empty) and user is now in tenant/root
+            guard !navigationPath.isEmpty else { return }
+
+            let isInTenantOrRoot = newValue == 0 || newValue == mumbleService.tenantChannelId
+            if isInTenantOrRoot {
+                print("[ChannelListView] User moved to tenant/root channel - popping navigation")
+                navigationPath = NavigationPath()
+            }
         }
         // Blink animation for ALARM text
         .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
@@ -244,6 +348,37 @@ struct ChannelListView: View {
                 print("[ChannelListView] No remaining time - submitting immediately")
                 await mumbleService.submitVoiceRecording()
             }
+        }
+    }
+
+    // MARK: - Dispatcher Request Helpers
+
+    /// Trigger dispatcher request and show recording dialog
+    private func triggerDispatcherRequestAndShowRecording() {
+        let maxDuration = mumbleService.alarmSettings.dispatcherVoiceMaxDuration
+        let alias = mumbleService.alarmSettings.dispatcherAlias
+
+        print("[ChannelListView] triggerDispatcherRequestAndShowRecording called")
+        print("[ChannelListView]   dispatcherVoiceMaxDuration = \(maxDuration)")
+        print("[ChannelListView]   dispatcherAlias = \(alias)")
+        print("[ChannelListView]   isRecordingVoice BEFORE = \(mumbleService.isRecordingVoice)")
+
+        // Start voice recording immediately
+        mumbleService.startDispatcherVoiceRecording()
+
+        print("[ChannelListView]   isRecordingVoice AFTER = \(mumbleService.isRecordingVoice)")
+
+        // Show recording dialog - using struct to ensure values are captured correctly
+        // This avoids SwiftUI state timing issues where the dialog might see stale values
+        dispatcherRecordingInfo = DispatcherRecordingInfo(
+            remainingSeconds: maxDuration,
+            dispatcherAlias: alias
+        )
+        print("[ChannelListView]   dispatcherRecordingInfo created with remainingSeconds = \(maxDuration)")
+
+        // Trigger request in background
+        Task {
+            await mumbleService.triggerDispatcherRequest()
         }
     }
 
@@ -300,53 +435,237 @@ struct ChannelListView: View {
         mumbleService.userPermissions.canCallDispatcher && mumbleService.userPermissions.canActAsDispatcher
     }
 
+    private var dispatcherRequestButton: some View {
+        DispatcherRequestButton(
+            holdDuration: Double(mumbleService.alarmSettings.dispatcherButtonHoldTime),
+            dispatcherAlias: mumbleService.alarmSettings.dispatcherAlias,
+            onHoldStart: {
+                // Start GPS warm-up
+                mumbleService.startDispatcherRequestWarmUp()
+            },
+            onHoldComplete: {
+                // Trigger request and start voice recording
+                triggerDispatcherRequestAndShowRecording()
+            },
+            onHoldCancel: {
+                // Cancel warm-up
+                mumbleService.cancelDispatcherRequestWarmUp()
+            }
+        )
+    }
+
+    private var dispatcherHistorySection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Ihre letzten Meldungen")
+                    .font(.headline)
+                    .padding(.top, 8)
+
+                if mumbleService.isLoadingDispatcherHistory {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                    .padding(.vertical, 20)
+                } else if mumbleService.dispatcherRequestHistory.isEmpty {
+                    Text("Keine Meldungen vorhanden")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 20)
+                } else {
+                    // Header row
+                    HStack(spacing: 0) {
+                        Text("Datum")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Status")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                        Text("Warten")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    .foregroundStyle(.secondary)
+
+                    Divider()
+
+                    // History rows
+                    ForEach(mumbleService.dispatcherRequestHistory) { item in
+                        HStack(spacing: 0) {
+                            // Date/Time
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let createdAt = item.createdAt {
+                                    let date = Date(timeIntervalSince1970: Double(createdAt) / 1000)
+                                    Text(date, format: .dateTime.day().month())
+                                        .font(.caption)
+                                    Text(date, format: .dateTime.hour().minute())
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            // Status
+                            Text(formatDispatcherStatus(item.status))
+                                .font(.caption)
+                                .foregroundStyle(statusColor(for: item.status))
+                                .frame(maxWidth: .infinity, alignment: .center)
+
+                            // Wait time
+                            Text(formatWaitTime(item.waitTimeSeconds, createdAt: item.createdAt, status: item.status))
+                                .font(.caption)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                        .padding(.vertical, 4)
+
+                        if item.id != mumbleService.dispatcherRequestHistory.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+
+    private func formatDispatcherStatus(_ status: String) -> String {
+        switch status {
+        case "completed": return "Erledigt"
+        case "cancelled": return "Abgebr."
+        case "pending": return "Wartend"
+        case "in_progress": return "Aktiv"
+        default: return status
+        }
+    }
+
+    private func statusColor(for status: String) -> Color {
+        switch status {
+        case "completed": return .green
+        case "cancelled": return .red
+        case "pending": return .orange
+        case "in_progress": return .blue
+        default: return .primary
+        }
+    }
+
+    private func formatWaitTime(_ seconds: Int?, createdAt: Int64?, status: String) -> String {
+        var waitSeconds = seconds
+
+        // If no wait time from backend (started_at is null) but request is pending,
+        // calculate elapsed time from createdAt to now
+        if waitSeconds == nil, let createdAt = createdAt, status == "pending" || status == "in_progress" {
+            let createdDate = Date(timeIntervalSince1970: Double(createdAt) / 1000)
+            waitSeconds = Int(Date().timeIntervalSince(createdDate))
+        }
+
+        guard let seconds = waitSeconds, seconds > 0 else { return "-" }
+
+        if seconds < 3600 {
+            // Less than 1 hour: show minutes
+            let mins = max(1, seconds / 60)  // At least 1 min
+            return "\(mins) min"
+        } else {
+            // 1 hour or more: show hours and minutes
+            let hours = seconds / 3600
+            let mins = (seconds % 3600) / 60
+            if mins > 0 {
+                return "\(hours)h \(mins)m"
+            } else {
+                return "\(hours)h"
+            }
+        }
+    }
+
     private var channelListContent: some View {
         List {
-            // Tab header section
+            // Tab header section (includes sub-tabs when dispatcher tab is selected)
             Section {
-                HStack {
-                    // Kanäle tab (left)
-                    Button {
-                        selectedTab = .channels
-                    } label: {
-                        Text("Kanäle")
-                            .font(.title2)
-                            .fontWeight(selectedTab == .channels ? .bold : .regular)
-                            .foregroundStyle(selectedTab == .channels ? .primary : .secondary)
-                    }
-                    .buttonStyle(.plain)
-
-                    // Favorites star (only shown when channels tab is active)
-                    if selectedTab == .channels {
+                VStack(spacing: 0) {
+                    HStack {
+                        // Kanäle tab (left)
                         Button {
-                            showOnlyFavorites.toggle()
+                            selectedTab = .channels
                         } label: {
-                            Image(systemName: "star.fill")
-                                .font(.title3)
-                                .foregroundStyle(showOnlyFavorites ? Color(red: 1.0, green: 0.84, blue: 0) : .secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Spacer()
-
-                    // Dispatcher tab (right, only if user has permission)
-                    if hasDispatcherPermission {
-                        Button {
-                            selectedTab = .dispatcher
-                        } label: {
-                            Text(mumbleService.alarmSettings.dispatcherAlias)
+                            Text("Kanäle")
                                 .font(.title2)
-                                .fontWeight(selectedTab == .dispatcher ? .bold : .regular)
-                                .foregroundStyle(selectedTab == .dispatcher ? .primary : .secondary)
+                                .fontWeight(selectedTab == .channels ? .bold : .regular)
+                                .foregroundStyle(selectedTab == .channels ? .primary : .secondary)
                         }
                         .buttonStyle(.plain)
+
+                        // Favorites star (only shown when channels tab is active)
+                        if selectedTab == .channels {
+                            Button {
+                                showOnlyFavorites.toggle()
+                            } label: {
+                                Image(systemName: "star.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(showOnlyFavorites ? Color(red: 1.0, green: 0.84, blue: 0) : .secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Spacer()
+
+                        // Dispatcher tab (right, only if user has permission)
+                        if hasDispatcherPermission {
+                            Button {
+                                selectedTab = .dispatcher
+                            } label: {
+                                Text(mumbleService.alarmSettings.dispatcherAlias)
+                                    .font(.title2)
+                                    .fontWeight(selectedTab == .dispatcher ? .bold : .regular)
+                                    .foregroundStyle(selectedTab == .dispatcher ? .primary : .secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
+
+                    // Divider line directly under tabs
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.3))
+                        .frame(height: 1)
+
+                    // Sub-tabs for dispatcher (Meldung/Servicedienst) - in same section to avoid gap
+                    if selectedTab == .dispatcher && hasBothDispatcherPermissions {
+                        HStack {
+                            // "Meldung" tab (left)
+                            Button {
+                                selectedDispatcherSubTab = .sendMessage
+                            } label: {
+                                Text("Meldung")
+                                    .font(.title3)
+                                    .fontWeight(selectedDispatcherSubTab == .sendMessage ? .bold : .regular)
+                                    .foregroundStyle(selectedDispatcherSubTab == .sendMessage ? .primary : .secondary)
+                            }
+                            .buttonStyle(.plain)
+
+                            Spacer()
+
+                            // "Servicedienst" tab (right)
+                            Button {
+                                selectedDispatcherSubTab = .serviceDesk
+                            } label: {
+                                Text("Servicedienst")
+                                    .font(.title3)
+                                    .fontWeight(selectedDispatcherSubTab == .serviceDesk ? .bold : .regular)
+                                    .foregroundStyle(selectedDispatcherSubTab == .serviceDesk ? .primary : .secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal)
+                        .padding(.top, 4)
                     }
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
-                .padding(.horizontal)
-                .padding(.top, 8)
             }
 
             // Content based on selected tab
@@ -366,6 +685,8 @@ struct ChannelListView: View {
                         ChannelRowButton(
                             channel: channel,
                             isFavorite: favoriteIds.contains(channel.id),
+                            subdomain: mumbleService.tenantSubdomain,
+                            certificateHash: mumbleService.credentials?.certificateHash,
                             onTap: { joinAndNavigate(channel) }
                         )
                         .swipeActions(edge: .trailing) {
@@ -382,55 +703,16 @@ struct ChannelListView: View {
             } else {
                 // Dispatcher tab content
                 if hasBothDispatcherPermissions {
-                    // Sub-tab header (only if user has both permissions)
-                    Section {
-                        VStack(spacing: 0) {
-                            // Divider line
-                            Rectangle()
-                                .fill(Color.secondary.opacity(0.3))
-                                .frame(height: 1)
-
-                            // Sub-tabs
-                            HStack {
-                                // "Meldung" tab (left)
-                                Button {
-                                    selectedDispatcherSubTab = .sendMessage
-                                } label: {
-                                    Text("Meldung")
-                                        .font(.title3)
-                                        .fontWeight(selectedDispatcherSubTab == .sendMessage ? .bold : .regular)
-                                        .foregroundStyle(selectedDispatcherSubTab == .sendMessage ? .primary : .secondary)
-                                }
-                                .buttonStyle(.plain)
-
-                                Spacer()
-
-                                // "Servicedienst" tab (right)
-                                Button {
-                                    selectedDispatcherSubTab = .serviceDesk
-                                } label: {
-                                    Text("Servicedienst")
-                                        .font(.title3)
-                                        .fontWeight(selectedDispatcherSubTab == .serviceDesk ? .bold : .regular)
-                                        .foregroundStyle(selectedDispatcherSubTab == .serviceDesk ? .primary : .secondary)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.top, 8)
-                        }
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .padding(.horizontal)
-
-                    // Content based on selected sub-tab
+                    // Content based on selected sub-tab (sub-tabs are now in header section above)
                     if selectedDispatcherSubTab == .sendMessage {
                         Section {
-                            Text("Meldung senden - Inhalt folgt...")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 40)
+                            dispatcherRequestButton
                         }
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+
+                        // Dispatcher request history
+                        dispatcherHistorySection
                     } else {
                         Section {
                             Text("Servicedienst - Inhalt folgt...")
@@ -441,13 +723,17 @@ struct ChannelListView: View {
                     }
                 } else {
                     // Only one permission - show single content
-                    Section {
-                        if mumbleService.userPermissions.canCallDispatcher {
-                            Text("Meldung senden - Inhalt folgt...")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 40)
-                        } else {
+                    if mumbleService.userPermissions.canCallDispatcher {
+                        Section {
+                            dispatcherRequestButton
+                        }
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+
+                        // Dispatcher request history
+                        dispatcherHistorySection
+                    } else {
+                        Section {
                             Text("Servicedienst - Inhalt folgt...")
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -598,14 +884,18 @@ struct ChannelListView: View {
 struct ChannelRowButton: View {
     let channel: Channel
     let isFavorite: Bool
+    let subdomain: String?
+    let certificateHash: String?
     let onTap: () -> Void
+    @StateObject private var imageCache = ChannelImageCache.shared
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                // Channel icon
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .foregroundStyle(Color.semparaPrimary)
+                // Channel image or fallback icon
+                channelImage
+                    .frame(width: 32, height: 32)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 // Channel name
                 Text(channel.name)
@@ -642,6 +932,31 @@ struct ChannelRowButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onAppear {
+            imageCache.loadImageIfNeeded(
+                channelId: channel.id,
+                subdomain: subdomain,
+                certificateHash: certificateHash
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var channelImage: some View {
+        if let image = imageCache.image(for: channel.id) {
+            image
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else {
+            // Fallback icon
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.semparaPrimary.opacity(0.15))
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color.semparaPrimary)
+            }
+        }
     }
 }
 
@@ -663,18 +978,7 @@ struct InfoView: View {
         NavigationStack {
             List {
                 Section("SAYses") {
-                    LabeledContent("Version", value: "\(appVersion) (\(buildNumber))")
-                }
-
-                Section("Server") {
-                    if let info = mumbleService.serverInfo {
-                        LabeledContent("Version", value: info.serverVersion)
-                        if !info.serverOs.isEmpty {
-                            LabeledContent("Betriebssystem", value: info.serverOs)
-                        }
-                    } else {
-                        LabeledContent("Version", value: "—")
-                    }
+                    LabeledContent("Version", value: "1.0.0")
                 }
 
                 Section("Kontrollkanal") {

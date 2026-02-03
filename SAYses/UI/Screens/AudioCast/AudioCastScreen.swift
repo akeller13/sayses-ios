@@ -52,8 +52,8 @@ struct AudioCastScreen: View {
             .navigationTitle("AudioCast")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Schließen") {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Fertig") {
                         dismiss()
                     }
                 }

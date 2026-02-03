@@ -43,8 +43,12 @@ class VoiceRecorder: NSObject, ObservableObject {
     /// - Returns: Path to the recording file, or nil if failed
     @discardableResult
     func startRecording() -> URL? {
+        print("[VoiceRecorder] startRecording() called")
+        print("[VoiceRecorder]   maxDuration = \(maxDuration)")
+        print("[VoiceRecorder]   isRecording = \(isRecording)")
+
         guard !isRecording else {
-            print("[VoiceRecorder] Already recording")
+            print("[VoiceRecorder] Already recording - returning currentFilePath")
             return currentFilePath
         }
 
@@ -60,11 +64,15 @@ class VoiceRecorder: NSObject, ObservableObject {
         let filePath = cacheDir.appendingPathComponent(fileName)
         currentFilePath = filePath
 
+        print("[VoiceRecorder]   filePath = \(filePath.lastPathComponent)")
+
         // Create recorder
         do {
             audioRecorder = try AVAudioRecorder(url: filePath, settings: recordingSettings)
             audioRecorder?.delegate = self
             audioRecorder?.isMeteringEnabled = true
+
+            print("[VoiceRecorder]   AVAudioRecorder created")
 
             guard audioRecorder?.prepareToRecord() == true else {
                 print("[VoiceRecorder] Failed to prepare recorder")
@@ -72,11 +80,15 @@ class VoiceRecorder: NSObject, ObservableObject {
                 return nil
             }
 
+            print("[VoiceRecorder]   prepareToRecord() succeeded")
+
             guard audioRecorder?.record() == true else {
                 print("[VoiceRecorder] Failed to start recording")
                 recordingError = "Aufnahme konnte nicht gestartet werden"
                 return nil
             }
+
+            print("[VoiceRecorder]   record() succeeded")
 
             isRecording = true
             recordingDuration = 0
@@ -86,6 +98,7 @@ class VoiceRecorder: NSObject, ObservableObject {
 
             // Start timer to track duration and enforce max duration
             startTimer()
+            print("[VoiceRecorder]   Timer started")
 
             return filePath
 
@@ -161,9 +174,18 @@ class VoiceRecorder: NSObject, ObservableObject {
     }
 
     private func updateDuration() {
-        guard let recorder = audioRecorder, isRecording else { return }
+        guard let recorder = audioRecorder, isRecording else {
+            print("[VoiceRecorder] updateDuration: guard failed - recorder=\(audioRecorder != nil), isRecording=\(isRecording)")
+            return
+        }
 
+        let prevDuration = recordingDuration
         recordingDuration = recorder.currentTime
+
+        // Log first few updates to see what's happening
+        if prevDuration == 0 || recordingDuration < 1.0 {
+            print("[VoiceRecorder] updateDuration: \(recordingDuration)s / \(maxDuration)s")
+        }
 
         // Enforce max duration
         if recordingDuration >= maxDuration {

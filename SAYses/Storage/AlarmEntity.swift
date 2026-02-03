@@ -67,6 +67,9 @@ final class AlarmEntity {
     /// Whether a voice message exists on the backend (for received alarms)
     var hasRemoteVoiceMessage: Bool
 
+    /// Transcribed text of the voice message (from backend)
+    var voiceMessageText: String?
+
     // MARK: - Computed Properties
 
     /// Whether the alarm is still open
@@ -107,7 +110,8 @@ final class AlarmEntity {
         locationUpdatedAt: Date? = nil,
         voiceMessagePath: String? = nil,
         voiceMessageUploaded: Bool = false,
-        hasRemoteVoiceMessage: Bool = false
+        hasRemoteVoiceMessage: Bool = false,
+        voiceMessageText: String? = nil
     ) {
         self.alarmId = alarmId
         self.backendAlarmId = backendAlarmId
@@ -125,6 +129,7 @@ final class AlarmEntity {
         self.voiceMessagePath = voiceMessagePath
         self.voiceMessageUploaded = voiceMessageUploaded
         self.hasRemoteVoiceMessage = hasRemoteVoiceMessage
+        self.voiceMessageText = voiceMessageText
     }
 
     /// Create from START_ALARM message

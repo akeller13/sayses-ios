@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct AlarmTriggerButton: View {
+    /// Whether the button is enabled (false when own alarm is active)
+    let isEnabled: Bool
     /// Called when hold starts (Phase 1 start) - start GPS warm-up
     let onHoldStart: () -> Void
     /// Called when hold duration reached (Phase 1 complete) - start voice recording
@@ -13,13 +15,16 @@ struct AlarmTriggerButton: View {
     @State private var isPressed = false
     @State private var holdProgress: CGFloat = 0
     @State private var holdTask: Task<Void, Never>?
+    @State private var didComplete = false  // Prevents multiple onHoldComplete calls
 
     init(
+        isEnabled: Bool = true,
         holdDuration: Double = 3.0,
         onHoldStart: @escaping () -> Void = {},
         onHoldComplete: @escaping () -> Void,
         onHoldCancel: @escaping () -> Void = {}
     ) {
+        self.isEnabled = isEnabled
         self.holdDuration = holdDuration
         self.onHoldStart = onHoldStart
         self.onHoldComplete = onHoldComplete
@@ -28,54 +33,74 @@ struct AlarmTriggerButton: View {
 
     var body: some View {
         ZStack {
-            // Background
+            // Background - gray when disabled
             RoundedRectangle(cornerRadius: 12)
-                .fill(isPressed ? Color.alarmRedDark : Color.alarmRed)
+                .fill(isEnabled
+                    ? (isPressed ? Color.alarmRedDark : Color.alarmRed)
+                    : Color.gray)
 
-            // Progress indicator (always present but invisible when not active)
-            HStack {
-                ZStack {
-                    // Background circle
-                    Circle()
-                        .stroke(Color.white.opacity(0.3), lineWidth: 4)
-                        .frame(width: 40, height: 40)
+            // Progress indicator (only when enabled and holding)
+            if isEnabled {
+                HStack {
+                    ZStack {
+                        // Background circle
+                        Circle()
+                            .stroke(Color.white.opacity(0.3), lineWidth: 4)
+                            .frame(width: 40, height: 40)
 
-                    // Progress circle
-                    Circle()
-                        .trim(from: 0, to: holdProgress)
-                        .stroke(Color.white, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                        .frame(width: 40, height: 40)
-                        .rotationEffect(.degrees(-90))
+                        // Progress circle
+                        Circle()
+                            .trim(from: 0, to: holdProgress)
+                            .stroke(Color.white, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                            .frame(width: 40, height: 40)
+                            .rotationEffect(.degrees(-90))
+                    }
+                    .opacity(holdProgress > 0 ? 1 : 0)
+                    .padding(.leading, 24)
+
+                    Spacer()
                 }
-                .opacity(holdProgress > 0 ? 1 : 0)
-                .padding(.leading, 24)
-
-                Spacer()
             }
 
-            // Text (no animation)
-            HStack(spacing: 12) {
-                if isPressed {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.title2)
-                }
+            // Content - different layout when disabled
+            if isEnabled {
+                // Normal enabled state
+                HStack(spacing: 12) {
+                    if isPressed {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.title2)
+                    }
 
-                Text("ALARM")
-                    .font(.title)
-                    .fontWeight(.bold)
+                    Text("ALARM")
+                        .font(.title)
+                        .fontWeight(.bold)
+                }
+                .foregroundStyle(.white)
+            } else {
+                // Disabled state - show hint text
+                VStack(spacing: 4) {
+                    Text("ALARM")
+                        .font(.title)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.white.opacity(0.7))
+
+                    Text("Eigener Alarm bereits aktiv")
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                }
             }
-            .foregroundStyle(.white)
         }
         .frame(height: 100)
-        .shadow(color: isPressed ? Color.alarmRed.opacity(0.5) : .clear, radius: 10)
+        .shadow(color: isPressed && isEnabled ? Color.alarmRed.opacity(0.5) : .clear, radius: 10)
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    guard !isPressed else { return }
+                    guard isEnabled, !isPressed else { return }
                     isPressed = true
                     startHold()
                 }
                 .onEnded { _ in
+                    guard isEnabled else { return }
                     isPressed = false
                     cancelHold()
                 }
@@ -84,6 +109,9 @@ struct AlarmTriggerButton: View {
     }
 
     private func startHold() {
+        // Prevent re-triggering if already completed (user still holding finger)
+        guard !didComplete else { return }
+
         holdProgress = 0
         onHoldStart()
 
@@ -104,6 +132,7 @@ struct AlarmTriggerButton: View {
                         let generator = UINotificationFeedbackGenerator()
                         generator.notificationOccurred(.warning)
 
+                        didComplete = true  // Prevent re-triggering while finger still down
                         onHoldComplete()
                         holdProgress = 0
                         isPressed = false
@@ -121,13 +150,16 @@ struct AlarmTriggerButton: View {
         holdTask = nil
 
         // Only call cancel if we didn't complete
-        if holdProgress < 1.0 {
+        if holdProgress < 1.0 && !didComplete {
             onHoldCancel()
         }
 
         withAnimation(.easeOut(duration: 0.2)) {
             holdProgress = 0
         }
+
+        // Reset didComplete for next button press
+        didComplete = false
     }
 }
 
@@ -137,6 +169,7 @@ extension AlarmTriggerButton {
     /// Legacy initializer for backward compatibility
     init(onTrigger: @escaping () -> Void) {
         self.init(
+            isEnabled: true,
             holdDuration: 3.0,
             onHoldStart: {},
             onHoldComplete: onTrigger,
@@ -148,11 +181,24 @@ extension AlarmTriggerButton {
 #Preview {
     VStack {
         Spacer()
+
+        // Enabled state
         AlarmTriggerButton(
+            isEnabled: true,
             holdDuration: 3.0,
             onHoldStart: { print("Hold started - warming up GPS") },
             onHoldComplete: { print("Hold complete - show countdown!") },
             onHoldCancel: { print("Hold cancelled") }
+        )
+        .padding()
+
+        // Disabled state
+        AlarmTriggerButton(
+            isEnabled: false,
+            holdDuration: 3.0,
+            onHoldStart: {},
+            onHoldComplete: {},
+            onHoldCancel: {}
         )
         .padding()
     }

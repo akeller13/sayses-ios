@@ -31,12 +31,19 @@ struct OpenAlarmsScreen: View {
             }
         }
         .onAppear {
-            Task { @MainActor in
-                mumbleService.refreshOpenAlarms()
+            print("[OpenAlarmsScreen] onAppear - openAlarms.count=\(mumbleService.openAlarms.count), isEmpty=\(mumbleService.openAlarms.isEmpty)")
+            NSLog("[OpenAlarmsScreen] onAppear - count=%d", mumbleService.openAlarms.count)
+            for alarm in mumbleService.openAlarms {
+                print("[OpenAlarmsScreen]   Alarm: \(alarm.alarmId), hasLocation=\(alarm.hasLocation), lat=\(alarm.latitude ?? -999), lon=\(alarm.longitude ?? -999)")
+                NSLog("[OpenAlarmsScreen] Alarm: %@, hasLocation=%d, lat=%f, lon=%f", alarm.alarmId, alarm.hasLocation ? 1 : 0, alarm.latitude ?? -999, alarm.longitude ?? -999)
             }
             // Sync alert state on appear
             showAlarmAlert = mumbleService.receivedAlarmForAlert != nil
             showEndAlarmAlert = mumbleService.receivedEndAlarmForAlert != nil
+        }
+        .task {
+            // Sync with backend and refresh local alarms when screen appears
+            await mumbleService.syncAndRefreshOpenAlarms()
         }
         // Alarm alert (new alarm received)
         .fullScreenCover(isPresented: $showAlarmAlert) {
@@ -102,10 +109,12 @@ struct OpenAlarmsScreen: View {
                         await mumbleService.downloadVoiceMessage(backendAlarmId: backendAlarmId)
                     }
                 )
-                // Dynamic ID forces re-render when location or voice message updates
-                .id("\(alarm.alarmId)-\(alarm.hasRemoteVoiceMessage)")
+                // Use only alarmId for identity - @Bindable handles data updates without re-creating the view
+                // Using dynamic data in ID caused confirmation dialogs to disappear when data changed
+                .id(alarm.alarmId)
                 .onAppear {
                     print("[OpenAlarmsScreen] Alarm row appearing: \(alarm.alarmId)")
+                    print("[OpenAlarmsScreen]   hasLocation=\(alarm.hasLocation), lat=\(alarm.latitude ?? 0), lon=\(alarm.longitude ?? 0)")
                     print("[OpenAlarmsScreen]   hasVoiceMessage=\(alarm.hasVoiceMessage)")
                     print("[OpenAlarmsScreen]   hasRemoteVoiceMessage=\(alarm.hasRemoteVoiceMessage)")
                     print("[OpenAlarmsScreen]   voiceMessagePath=\(alarm.voiceMessagePath ?? "nil")")
@@ -115,7 +124,7 @@ struct OpenAlarmsScreen: View {
         }
         .listStyle(.insetGrouped)
         .refreshable {
-            mumbleService.refreshOpenAlarms()
+            await mumbleService.syncAndRefreshOpenAlarms()
         }
     }
 }
@@ -204,6 +213,12 @@ struct AlarmRowView: View {
                     .padding(.top, 4)
             }
 
+            // Voice message transcription
+            if let transcription = alarm.voiceMessageText, !transcription.isEmpty {
+                voiceTranscriptionSection(transcription)
+                    .padding(.top, 4)
+            }
+
             // End alarm button (bottom row)
             if canEndAlarm {
                 Button(action: {
@@ -236,9 +251,9 @@ struct AlarmRowView: View {
     private func locationSection(latitude: Double, longitude: Double) -> some View {
         HStack(alignment: .top) {
             // Clickable location link (left column)
-            Button(action: {
+            Button {
                 openInMaps(latitude: latitude, longitude: longitude)
-            }) {
+            } label: {
                 HStack(alignment: .top, spacing: 4) {
                     Image(systemName: "location.fill")
                         .font(.subheadline)
@@ -254,8 +269,9 @@ struct AlarmRowView: View {
                     }
                 }
                 .foregroundStyle(Color(red: 0.1, green: 0.46, blue: 0.82)) // Blue like Android
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
 
             Spacer()
 
@@ -380,13 +396,38 @@ struct AlarmRowView: View {
     }
 
     private func openInMaps(latitude: Double, longitude: Double) {
+        print("[AlarmRowView] openInMaps called with lat=\(latitude), lon=\(longitude)")
         let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         let placemark = MKPlacemark(coordinate: coordinate)
         let mapItem = MKMapItem(placemark: placemark)
         mapItem.name = "Alarm: \(alarm.effectiveName)"
+        print("[AlarmRowView] Opening maps for: \(mapItem.name ?? "unknown")")
+
+        // Show location only, no directions
         mapItem.openInMaps(launchOptions: [
-            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+            MKLaunchOptionsMapCenterKey: NSValue(mkCoordinate: coordinate),
+            MKLaunchOptionsMapSpanKey: NSValue(mkCoordinateSpan: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
         ])
+    }
+
+    private func voiceTranscriptionSection(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Image(systemName: "text.quote")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Transkription:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(8)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
     }
 }
 

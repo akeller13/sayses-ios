@@ -8,6 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		02C181DF0FC28535908EA5C0 /* ChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F9FC7B92D0601D7D61BECA /* ChannelView.swift */; };
+		SSE001002003004005006CC /* ChannelUpdatesSSE.swift in Sources */ = {isa = PBXBuildFile; fileRef = SSE001002003004005006BB /* ChannelUpdatesSSE.swift */; };
+		ALARMSSE00100200300400CC /* AlarmUpdatesSSE.swift in Sources */ = {isa = PBXBuildFile; fileRef = ALARMSSE00100200300400BB /* AlarmUpdatesSSE.swift */; };
+		GPS001002003004005006CC /* BufferedPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = GPS001002003004005006BB /* BufferedPosition.swift */; };
+		GPS001002003004005006EE /* PositionBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = GPS001002003004005006DD /* PositionBuffer.swift */; };
+		GPS001002003004005006GG /* PositionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = GPS001002003004005006FF /* PositionTracker.swift */; };
+		CACHE001002003004005006CC /* DispatcherHistoryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACHE001002003004005006BB /* DispatcherHistoryCache.swift */; };
+		CACHE001002003004005006EE /* ChannelImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACHE001002003004005006DD /* ChannelImageCache.swift */; };
 		05FB57307ACA6ED3B1180217 /* AlarmSoundPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51BC07642B261C96F565FF2 /* AlarmSoundPlayer.swift */; };
 		0A9EFBF215DE3098C7A90D68 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B1FB0E5D4155C90EBE7E78 /* AppDelegate.swift */; };
 		0AC5E48BDC3D5DD9301BCD53 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D142C74BC30977E5E53C794 /* AuthViewModel.swift */; };
@@ -29,6 +36,7 @@
 		412DCD4CD1EE283061698B6B /* user_audio_buffer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C91A93144C406BCB6CC417EA /* user_audio_buffer.cpp */; };
 		41A94FD9D54B3A4A90AC7AC6 /* AlarmTriggerButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7370DB9A5DF799493B594BEF /* AlarmTriggerButton.swift */; };
 		49E26C93639B44FB7E1001AD /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CBBF7B9373A05F05FD2348F6 /* Security.framework */; };
+		4F691129296A5F5575E665FD /* DispatcherRecordingDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA37E49AF214064B3AB68E02 /* DispatcherRecordingDialog.swift */; };
 		55BD3DEDE37569A02F7C2F6F /* EmailLookupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704CA3BDEDAC566DE26735BF /* EmailLookupSheet.swift */; };
 		581814CC4556E249CD83A9E1 /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00A8DDCF485A445826D20CE /* VoiceRecorder.swift */; };
 		58328E038310AEE7BE06BDD5 /* MumbleProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5773DBDAEFB677495E2F0B96 /* MumbleProtocol.swift */; };
@@ -46,6 +54,7 @@
 		92BB85BC7CE3C2B50246C590 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8A90367E737EB7480E344A8A /* Assets.xcassets */; };
 		965286E131F59DED5A526384 /* vad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6555B75165230C3025458FAC /* vad.cpp */; };
 		9F20107B5613A05F52E1CD4D /* KeycloakAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF205812D9FDA95528503CAA /* KeycloakAuthService.swift */; };
+		A210019EF7B730BF09B64B14 /* DispatcherRequestButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD9FE12EC1BC08669442BAC6 /* DispatcherRequestButton.swift */; };
 		AD26D985FB371B706556AA6B /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F39FCACF3B0CCA17867F19DF /* RootView.swift */; };
 		AD38F26AB855722929A30024 /* audio_engine.mm in Sources */ = {isa = PBXBuildFile; fileRef = 10E434BE64BB3355E6E97B57 /* audio_engine.mm */; };
 		ADBD4EA4FDFEDE10E107B163 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D21F5413CFEB560099CEF608 /* LocationService.swift */; };
@@ -83,6 +92,13 @@
 
 /* Begin PBXFileReference section */
 		014CDC4FE9CBBDF583587400 /* jitter_buffer.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = jitter_buffer.cpp; path = ../../../../Core/src/audio/jitter_buffer.cpp; sourceTree = "<group>"; };
+		CACHE001002003004005006BB /* DispatcherHistoryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatcherHistoryCache.swift; sourceTree = "<group>"; };
+		CACHE001002003004005006DD /* ChannelImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelImageCache.swift; sourceTree = "<group>"; };
+		SSE001002003004005006BB /* ChannelUpdatesSSE.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelUpdatesSSE.swift; sourceTree = "<group>"; };
+		ALARMSSE00100200300400BB /* AlarmUpdatesSSE.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmUpdatesSSE.swift; sourceTree = "<group>"; };
+		GPS001002003004005006BB /* BufferedPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BufferedPosition.swift; sourceTree = "<group>"; };
+		GPS001002003004005006DD /* PositionBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionBuffer.swift; sourceTree = "<group>"; };
+		GPS001002003004005006FF /* PositionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionTracker.swift; sourceTree = "<group>"; };
 		02AFB15031D1771CBD576A51 /* AudioCastViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioCastViewModel.swift; sourceTree = "<group>"; };
 		03FD34D7E539538FF3536B14 /* ChannelViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelViewModel.swift; sourceTree = "<group>"; };
 		06D87CA17D78F7F369D16DB9 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
@@ -140,6 +156,7 @@
 		A2A78B60D3CB4308A2CA22E5 /* OpusCodecBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpusCodecBridge.h; sourceTree = "<group>"; };
 		ADD12553BD432D1877B82F2F /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
 		AE3D0CCC9670D419FF9277C1 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		BA37E49AF214064B3AB68E02 /* DispatcherRecordingDialog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DispatcherRecordingDialog.swift; sourceTree = "<group>"; };
 		C6AD329766E8220DE928E698 /* audio_engine.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = audio_engine.h; path = ../../../Core/include/audio_engine.h; sourceTree = "<group>"; };
 		C91A93144C406BCB6CC417EA /* user_audio_buffer.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = user_audio_buffer.cpp; path = ../../../../Core/src/audio/user_audio_buffer.cpp; sourceTree = "<group>"; };
 		CBBF7B9373A05F05FD2348F6 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
@@ -151,6 +168,7 @@
 		D51BC07642B261C96F565FF2 /* AlarmSoundPlayer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmSoundPlayer.swift; sourceTree = "<group>"; };
 		D6596C313812F3F10071D44E /* SemparaAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemparaAPIClient.swift; sourceTree = "<group>"; };
 		D97120C85153213FE538F55A /* AlarmRepository.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmRepository.swift; sourceTree = "<group>"; };
+		DD9FE12EC1BC08669442BAC6 /* DispatcherRequestButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DispatcherRequestButton.swift; sourceTree = "<group>"; };
 		E1A2B3C4D5E6F7890ABCDEF1 /* EndAlarmAlertDialog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EndAlarmAlertDialog.swift; sourceTree = "<group>"; };
 		E1A2B3C4D5E6F7890ABCDEF3 /* PostAlarmRecordingDialog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostAlarmRecordingDialog.swift; sourceTree = "<group>"; };
 		E3B1FB0E5D4155C90EBE7E78 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -248,6 +266,7 @@
 				06D87CA17D78F7F369D16DB9 /* User.swift */,
 				507A7B4D2BC8659C5A486CE2 /* AlarmModels.swift */,
 				33705A009486368E024E8EC9 /* AudioCastModels.swift */,
+				GPS001002003004005006BB /* BufferedPosition.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -344,6 +363,16 @@
 			path = Pods;
 			sourceTree = "<group>";
 		};
+		7F21538DA9CB7B15CCD2E722 /* Dispatcher */ = {
+			isa = PBXGroup;
+			children = (
+				DD9FE12EC1BC08669442BAC6 /* DispatcherRequestButton.swift */,
+				BA37E49AF214064B3AB68E02 /* DispatcherRecordingDialog.swift */,
+			);
+			name = Dispatcher;
+			path = Dispatcher;
+			sourceTree = "<group>";
+		};
 		880148C05C80CAFBA0BFD8E4 /* Mumble */ = {
 			isa = PBXGroup;
 			children = (
@@ -380,11 +409,31 @@
 				A5DAA529D8D15A78DF26B7DF /* API */,
 				9CD40C32ED4CEEE1535B318B /* Audio */,
 				79934C87C881036C5659CB39 /* Auth */,
+				CACHE001002003004005006AA /* Cache */,
 				C7CF8EA23698776FA7116491 /* Location */,
 				880148C05C80CAFBA0BFD8E4 /* Mumble */,
 				0F521323F761FDF7608E92D8 /* Notifications */,
+				SSE001002003004005006AA /* SSE */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		SSE001002003004005006AA /* SSE */ = {
+			isa = PBXGroup;
+			children = (
+				ALARMSSE00100200300400BB /* AlarmUpdatesSSE.swift */,
+				SSE001002003004005006BB /* ChannelUpdatesSSE.swift */,
+			);
+			path = SSE;
+			sourceTree = "<group>";
+		};
+		CACHE001002003004005006AA /* Cache */ = {
+			isa = PBXGroup;
+			children = (
+				CACHE001002003004005006DD /* ChannelImageCache.swift */,
+				CACHE001002003004005006BB /* DispatcherHistoryCache.swift */,
+			);
+			path = Cache;
 			sourceTree = "<group>";
 		};
 		91186AD4814007E4B97693DF /* generated */ = {
@@ -483,6 +532,8 @@
 			isa = PBXGroup;
 			children = (
 				D21F5413CFEB560099CEF608 /* LocationService.swift */,
+				GPS001002003004005006DD /* PositionBuffer.swift */,
+				GPS001002003004005006FF /* PositionTracker.swift */,
 			);
 			path = Location;
 			sourceTree = "<group>";
@@ -525,6 +576,7 @@
 				7DC1A61F3145304A13AB6A21 /* Login */,
 				33BF9C85B5C743209FB1AC40 /* Settings */,
 				791E6BB12213AA1345EAF5AE /* AudioCast */,
+				7F21538DA9CB7B15CCD2E722 /* Dispatcher */,
 			);
 			path = Screens;
 			sourceTree = "<group>";
@@ -686,6 +738,8 @@
 				02C181DF0FC28535908EA5C0 /* ChannelView.swift in Sources */,
 				370B80D4D2AB87AFAC2B2723 /* ChannelViewModel.swift in Sources */,
 				0B58944E9ADDE037C7A48C2B /* Colors.swift in Sources */,
+				CACHE001002003004005006CC /* DispatcherHistoryCache.swift in Sources */,
+				CACHE001002003004005006EE /* ChannelImageCache.swift in Sources */,
 				55BD3DEDE37569A02F7C2F6F /* EmailLookupSheet.swift in Sources */,
 				9F20107B5613A05F52E1CD4D /* KeycloakAuthService.swift in Sources */,
 				BAB09629F79100DF2CEDD7CC /* LoginView.swift in Sources */,
@@ -694,6 +748,8 @@
 				58328E038310AEE7BE06BDD5 /* MumbleProtocol.swift in Sources */,
 				36180996E67B2164A094A63F /* MumbleService.swift in Sources */,
 				C3E8F78C6F5384270C57F2BE /* MumbleTcpConnection.swift in Sources */,
+				ALARMSSE00100200300400CC /* AlarmUpdatesSSE.swift in Sources */,
+				SSE001002003004005006CC /* ChannelUpdatesSSE.swift in Sources */,
 				AED0877BCDDE2ACEBB729FD2 /* PttButton.swift in Sources */,
 				AD26D985FB371B706556AA6B /* RootView.swift in Sources */,
 				1120C1BD55104585894ED0F7 /* SAYsesApp.swift in Sources */,
@@ -714,6 +770,9 @@
 				AD38F26AB855722929A30024 /* audio_engine.mm in Sources */,
 				ADD849C5F93128525F258968 /* AlarmModels.swift in Sources */,
 				ADBD4EA4FDFEDE10E107B163 /* LocationService.swift in Sources */,
+				GPS001002003004005006CC /* BufferedPosition.swift in Sources */,
+				GPS001002003004005006EE /* PositionBuffer.swift in Sources */,
+				GPS001002003004005006GG /* PositionTracker.swift in Sources */,
 				581814CC4556E249CD83A9E1 /* VoiceRecorder.swift in Sources */,
 				856F5FADDAA790D8DF8BFD66 /* AlarmEntity.swift in Sources */,
 				F9B3928049AE95F77B3B227F /* AlarmRepository.swift in Sources */,
@@ -728,6 +787,8 @@
 				23929CF33DF7460BCA395887 /* AudioCastModels.swift in Sources */,
 				ED936B68CF35DF53CFC920C0 /* AudioCastViewModel.swift in Sources */,
 				D8A9E159109D88DDA191C061 /* AudioCastScreen.swift in Sources */,
+				A210019EF7B730BF09B64B14 /* DispatcherRequestButton.swift in Sources */,
+				4F691129296A5F5575E665FD /* DispatcherRecordingDialog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

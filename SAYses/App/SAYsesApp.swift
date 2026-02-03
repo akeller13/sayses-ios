@@ -12,6 +12,34 @@ struct SAYsesApp: App {
         let schema = Schema([
             AlarmEntity.self
         ])
+
+        // Schema version key - increment this when schema changes
+        let currentSchemaVersion = 2
+        let schemaVersionKey = "SAYses_SchemaVersion"
+
+        // Helper function to delete database files
+        func deleteDatabase() {
+            let fileManager = FileManager.default
+            if let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                let storeURL = appSupportDir.appendingPathComponent("default.store")
+                let shmURL = appSupportDir.appendingPathComponent("default.store-shm")
+                let walURL = appSupportDir.appendingPathComponent("default.store-wal")
+
+                try? fileManager.removeItem(at: storeURL)
+                try? fileManager.removeItem(at: shmURL)
+                try? fileManager.removeItem(at: walURL)
+                print("[SAYsesApp] Old database files deleted")
+            }
+        }
+
+        // Check if we need to migrate (schema version changed)
+        let savedSchemaVersion = UserDefaults.standard.integer(forKey: schemaVersionKey)
+        if savedSchemaVersion < currentSchemaVersion {
+            print("[SAYsesApp] Schema version changed (\(savedSchemaVersion) -> \(currentSchemaVersion)), deleting old database...")
+            deleteDatabase()
+            UserDefaults.standard.set(currentSchemaVersion, forKey: schemaVersionKey)
+        }
+
         let modelConfiguration = ModelConfiguration(
             schema: schema,
             isStoredInMemoryOnly: false
@@ -25,7 +53,23 @@ struct SAYsesApp: App {
             let repo = AlarmRepository.shared(container: container)
             print("[SAYsesApp] AlarmRepository initialized: \(repo)")
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // Schema migration failed - delete old database and retry
+            print("[SAYsesApp] ModelContainer creation failed: \(error)")
+            print("[SAYsesApp] Attempting to delete old database and recreate...")
+
+            deleteDatabase()
+            UserDefaults.standard.set(currentSchemaVersion, forKey: schemaVersionKey)
+
+            // Retry with fresh database
+            do {
+                let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+                self.sharedModelContainer = container
+                print("[SAYsesApp] ModelContainer recreated successfully after cleanup")
+                let repo = AlarmRepository.shared(container: container)
+                print("[SAYsesApp] AlarmRepository initialized: \(repo)")
+            } catch {
+                fatalError("Could not create ModelContainer even after cleanup: \(error)")
+            }
         }
     }
 

@@ -247,7 +247,8 @@ class AlarmRepository: ObservableObject {
         longitude: Double?,
         locationType: String?,
         locationUpdatedAt: Date?,
-        hasRemoteVoiceMessage: Bool
+        hasRemoteVoiceMessage: Bool,
+        voiceMessageText: String? = nil
     ) {
         guard let alarm = getAlarm(byAlarmId: alarmId) else {
             print("[AlarmRepository] Alarm not found for backend update: \(alarmId)")
@@ -259,8 +260,11 @@ class AlarmRepository: ObservableObject {
         alarm.locationType = locationType
         alarm.locationUpdatedAt = locationUpdatedAt
         alarm.hasRemoteVoiceMessage = hasRemoteVoiceMessage
+        if let text = voiceMessageText {
+            alarm.voiceMessageText = text
+        }
         save()
-        print("[AlarmRepository] Updated alarm \(alarmId) from backend: lat=\(latitude ?? 0), lon=\(longitude ?? 0), updatedAt=\(locationUpdatedAt?.description ?? "nil")")
+        print("[AlarmRepository] Updated alarm \(alarmId) from backend: lat=\(latitude ?? 0), lon=\(longitude ?? 0), updatedAt=\(locationUpdatedAt?.description ?? "nil"), voiceText=\(voiceMessageText != nil ? "SET" : "nil")")
     }
 
     /// Update only the location timestamp (when position unchanged but we have new backend timestamp)
@@ -378,7 +382,8 @@ class AlarmRepository: ObservableObject {
 
     // MARK: - Helpers
 
-    private func save() {
+    /// Save changes to the model context
+    func save() {
         do {
             try modelContext.save()
         } catch {

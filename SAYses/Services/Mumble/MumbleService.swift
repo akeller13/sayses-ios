@@ -16,7 +16,7 @@ struct UserProfile {
 }
 
 /// Service that manages Mumble connection and channel data
-class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
+class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, ChannelUpdatesSSEDelegate, AlarmUpdatesSSEDelegate {
     @Published private(set) var connectionState: ConnectionState = .disconnected
     @Published private(set) var channels: [Channel] = []
     @Published private(set) var users: [User] = []
@@ -51,6 +51,18 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
     @Published var receivedAlarmForAlert: AlarmEntity?  // Triggers alert dialog when set
     @Published var receivedEndAlarmForAlert: EndAlarmMessage?  // Triggers "alarm ended" dialog when set
 
+    // MARK: - Dispatcher Request State
+    @Published private(set) var currentDispatcherRequestId: String?
+    @Published private(set) var isDispatcherRequestActive: Bool = false
+    @Published private(set) var dispatcherRequestHistory: [DispatcherRequestHistoryItem] = []
+    @Published private(set) var isLoadingDispatcherHistory: Bool = false
+    @Published var showDispatcherCancelledToast: Bool = false  // Triggers "Meldung abgebrochen" toast
+    private var dispatcherRequestBackendId: String?
+    private var dispatcherVoiceFilePath: URL?
+    private var pendingCancelRequestId: String?  // Used for retry after reconnect
+    private let dispatcherHistoryCache = DispatcherHistoryCache.shared
+    private var dispatcherHistorySSETask: Task<Void, Never>?  // SSE stream task
+
     // MARK: - Auto-Reconnect State
     private var lastCredentials: MumbleCredentials?
     private var userDisconnected = false  // true = user chose to disconnect, no auto-reconnect
@@ -77,9 +89,12 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
     private let keycloakService = KeycloakAuthService()
     private let audioService = AudioService()
     private let locationService = LocationService()
+    private lazy var positionTracker = PositionTracker(locationService: locationService, apiClient: apiClient)
     private let voiceRecorder = VoiceRecorder()
     private var _credentials: MumbleCredentials?
     private let mumbleConnection = MumbleConnection()
+    private var channelUpdatesSSE: ChannelUpdatesSSE?
+    private var alarmUpdatesSSE: AlarmUpdatesSSE?
 
     /// Public getter for credentials (for AudioCast API calls)
     var credentials: MumbleCredentials? {
@@ -140,14 +155,33 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
         setupOpusCodec()
         setupNetworkMonitoring()
         setupAlarmRepository()
+        loadDispatcherHistoryFromCache()
+    }
+
+    private func loadDispatcherHistoryFromCache() {
+        // Load cached dispatcher history for immediate display
+        let cachedItems = dispatcherHistoryCache.getItems()
+        if !cachedItems.isEmpty {
+            DispatchQueue.main.async {
+                self.dispatcherRequestHistory = cachedItems
+                print("[MumbleService] Loaded \(cachedItems.count) dispatcher history items from cache")
+            }
+        }
     }
 
     private func setupAlarmRepository() {
         Task { @MainActor in
             alarmRepository = AlarmRepository.shared()
-            // DON'T load alarms here - let sync handle it
-            // This prevents race condition where old alarms are loaded after sync deletes them
-            print("[MumbleService] AlarmRepository initialized (alarms will be loaded by sync)")
+            // Load existing alarms immediately so UI shows them right away
+            let existingAlarms = alarmRepository?.getOpenAlarms() ?? []
+            print("[MumbleService] AlarmRepository initialized with \(existingAlarms.count) existing alarms")
+            for alarm in existingAlarms {
+                print("[MumbleService]   Initial load: \(alarm.alarmId) lat=\(alarm.latitude ?? -999), lon=\(alarm.longitude ?? -999), hasLocation=\(alarm.hasLocation)")
+            }
+            if !existingAlarms.isEmpty {
+                self.objectWillChange.send()
+                openAlarms = existingAlarms
+            }
         }
     }
 
@@ -334,6 +368,309 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
         print("[MumbleService] Alarm sync timer stopped")
     }
 
+    // MARK: - Channel Updates SSE
+
+    /// Start SSE connection for real-time channel permission updates
+    private func startChannelUpdatesSSE() {
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else {
+            print("[MumbleService] Cannot start channel updates SSE: missing credentials")
+            return
+        }
+
+        // Stop any existing SSE connection
+        channelUpdatesSSE?.stop()
+
+        // Create and start new SSE connection
+        let sse = ChannelUpdatesSSE(subdomain: subdomain, certificateHash: certificateHash)
+        sse.delegate = self
+        sse.start()
+        channelUpdatesSSE = sse
+
+        print("[MumbleService] Channel updates SSE started for \(subdomain)")
+    }
+
+    /// Stop the SSE connection for channel updates
+    private func stopChannelUpdatesSSE() {
+        channelUpdatesSSE?.stop()
+        channelUpdatesSSE = nil
+        print("[MumbleService] Channel updates SSE stopped")
+    }
+
+    // MARK: - ChannelUpdatesSSEDelegate
+
+    func channelPermissionsChanged(action: String, channelIds: [String]) {
+        print("[MumbleService] SSE: Channel permissions \(action) for \(channelIds.count) channel(s)")
+
+        // Request fresh permissions from Mumble server
+        mumbleConnection.requestAllChannelPermissions()
+
+        // Delay slightly then refresh channel list (give Mumble server time to update ACLs)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self = self else { return }
+            // Trigger channel list update by re-applying filtering
+            let currentChannels = self.mumbleConnection.getChannelList()
+            self.channelsUpdated(currentChannels)
+            print("[MumbleService] Channel list refreshed after SSE update")
+        }
+    }
+
+    func sseConnectionStateChanged(isConnected: Bool) {
+        print("[MumbleService] SSE connection state: \(isConnected ? "connected" : "disconnected")")
+    }
+
+    // MARK: - Alarm Updates SSE
+
+    /// Start SSE connection for real-time alarm updates
+    private func startAlarmUpdatesSSE() {
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else {
+            print("[MumbleService] Cannot start alarm updates SSE: missing credentials")
+            return
+        }
+
+        // Stop any existing SSE connection
+        alarmUpdatesSSE?.stop()
+
+        // Create and start new SSE connection
+        let sse = AlarmUpdatesSSE(subdomain: subdomain, certificateHash: certificateHash)
+        sse.delegate = self
+        sse.start()
+        alarmUpdatesSSE = sse
+
+        print("[MumbleService] Alarm updates SSE started for \(subdomain)")
+    }
+
+    /// Stop the SSE connection for alarm updates
+    private func stopAlarmUpdatesSSE() {
+        alarmUpdatesSSE?.stop()
+        alarmUpdatesSSE = nil
+        print("[MumbleService] Alarm updates SSE stopped")
+    }
+
+    // MARK: - AlarmUpdatesSSEDelegate
+
+    @MainActor
+    func alarmStarted(_ data: AlarmSSEData) {
+        NSLog("[MumbleService] SSE: alarm_started id=%@", data.id)
+        NSLog("[MumbleService] SSE:   currentAlarmId=%@, alarmBackendId=%@", currentAlarmId ?? "nil", alarmBackendId ?? "nil")
+        NSLog("[MumbleService] SSE:   sseUsername=%@, myUsername=%@", data.alarmStartUserName ?? "nil", credentials?.username ?? "nil")
+        print("[MumbleService] SSE: alarm_started \(data.id)")
+        print("[MumbleService] SSE:   currentAlarmId=\(currentAlarmId ?? "nil"), alarmBackendId=\(alarmBackendId ?? "nil")")
+        print("[MumbleService] SSE:   alarmTriggerState=\(alarmTriggerState), sseUsername=\(data.alarmStartUserName ?? "nil"), myUsername=\(credentials?.username ?? "nil")")
+
+        // CRITICAL: Ignore if this is our own alarm (we triggered it)
+        // Check 1: By alarm ID (may not match due to local vs backend ID)
+        if data.id == currentAlarmId || data.id == alarmBackendId {
+            NSLog("[MumbleService] SSE: Ignoring own alarm - matched by ID")
+            print("[MumbleService] SSE: Ignoring own alarm - matched by ID")
+            return
+        }
+
+        // Check 2: By username - ALWAYS check this regardless of state
+        // This handles the race condition where SSE arrives before currentAlarmId is set
+        if let myUsername = credentials?.username,
+           let sseUsername = data.alarmStartUserName,
+           myUsername.lowercased() == sseUsername.lowercased() {
+            NSLog("[MumbleService] SSE: Ignoring own alarm - username match: %@", sseUsername)
+            print("[MumbleService] SSE: Ignoring own alarm - matched by username: \(sseUsername)")
+            // Store the backend ID for future reference
+            if alarmBackendId == nil {
+                alarmBackendId = data.id
+            }
+            return
+        }
+
+        // Check if user can receive alarms
+        guard userPermissions.canReceiveAlarm else {
+            print("[MumbleService] SSE: User cannot receive alarms - ignoring")
+            return
+        }
+
+        // Ensure repository is initialized
+        if alarmRepository == nil {
+            alarmRepository = AlarmRepository.shared()
+        }
+
+        // Check for duplicate
+        if alarmRepository?.alarmExists(alarmId: data.id) == true {
+            print("[MumbleService] SSE: Alarm already exists - ignoring duplicate")
+            return
+        }
+
+        // Create alarm entity from SSE data
+        let alarm = AlarmEntity(
+            alarmId: data.id,
+            backendAlarmId: data.id,  // SSE uses backend ID directly
+            triggeredByUsername: data.alarmStartUserName ?? "",
+            triggeredByDisplayName: data.alarmStartUserDisplayname,
+            triggeredByUserId: 0,  // Not available via SSE
+            channelId: UInt32(data.channelId ?? 0),
+            channelName: data.channelName ?? "",
+            latitude: data.latitude,
+            longitude: data.longitude,
+            locationType: data.locationType,
+            locationUpdatedAt: data.latitude != nil ? Date() : nil
+        )
+        alarmRepository?.insertAlarm(alarm)
+
+        // Update published state
+        lastReceivedAlarm = alarm
+        openAlarms = alarmRepository?.getOpenAlarms() ?? []
+
+        print("[MumbleService] SSE: Alarm stored: \(alarm.alarmId), open alarms: \(openAlarms.count)")
+
+        // Play alarm sound
+        let selectedSound = UserDefaults.standard.selectedAlarmSound
+        AlarmSoundPlayer.shared.startAlarm(sound: selectedSound)
+        NSLog("[MumbleService] SSE: TRIGGERING ALERT for alarm %@", alarm.alarmId)
+        print("[MumbleService] SSE: Started alarm sound: \(selectedSound.displayName)")
+
+        // Trigger alert dialog
+        receivedAlarmForAlert = alarm
+        print("[MumbleService] SSE: Alert dialog triggered for alarm: \(alarm.alarmId)")
+    }
+
+    @MainActor
+    func alarmUpdated(_ data: AlarmSSEData) {
+        print("[MumbleService] SSE: alarm_updated \(data.id)")
+        print("[MumbleService] SSE:   location: lat=\(data.latitude ?? -999), lon=\(data.longitude ?? -999)")
+
+        // Ensure repository is initialized
+        if alarmRepository == nil {
+            alarmRepository = AlarmRepository.shared()
+        }
+
+        // Find alarm by ID (try both alarmId and backendAlarmId)
+        guard let alarm = alarmRepository?.getAlarm(byAlarmId: data.id) ??
+                          alarmRepository?.getAlarm(byBackendId: data.id) else {
+            print("[MumbleService] SSE: Alarm not found for update: \(data.id)")
+            return
+        }
+
+        // Update location if provided
+        if let lat = data.latitude, let lon = data.longitude {
+            alarm.latitude = lat
+            alarm.longitude = lon
+            alarm.locationType = data.locationType
+            alarm.locationUpdatedAt = Date()
+        }
+
+        // Update voice message status
+        if let hasVoice = data.hasVoiceMessage, hasVoice {
+            alarm.hasRemoteVoiceMessage = true
+        }
+        if let text = data.voiceMessageText {
+            alarm.voiceMessageText = text
+        }
+
+        alarmRepository?.save()
+        openAlarms = alarmRepository?.getOpenAlarms() ?? []
+
+        print("[MumbleService] SSE: Alarm updated: \(alarm.alarmId)")
+    }
+
+    @MainActor
+    func alarmEnded(alarmId: String, closedAt: Date, closedBy: String?) {
+        print("[MumbleService] SSE: alarm_ended \(alarmId) by \(closedBy ?? "unknown")")
+        print("[MumbleService] SSE:   currentAlarmId=\(currentAlarmId ?? "nil"), alarmBackendId=\(alarmBackendId ?? "nil")")
+
+        // IMPORTANT: Determine if this is our own alarm BEFORE clearing the variables
+        var wasOwnAlarm = alarmId == currentAlarmId || alarmId == alarmBackendId
+
+        // Also check by username in repository (handles case where IDs were already cleared)
+        if !wasOwnAlarm, let myUsername = credentials?.username {
+            if let alarm = alarmRepository?.getAlarm(byAlarmId: alarmId) ?? alarmRepository?.getAlarm(byBackendId: alarmId) {
+                if alarm.triggeredByUsername.lowercased() == myUsername.lowercased() {
+                    wasOwnAlarm = true
+                    print("[MumbleService] SSE: Detected own alarm by username match in repository")
+                }
+            }
+        }
+
+        // Stop tracking if this is our own alarm
+        if wasOwnAlarm {
+            print("[MumbleService] SSE: Stopping position tracking for ended own alarm")
+            stopPositionTracking()
+            currentAlarmId = nil
+            alarmBackendId = nil
+            alarmTriggerState = .idle
+        }
+
+        // Ensure repository is initialized
+        if alarmRepository == nil {
+            alarmRepository = AlarmRepository.shared()
+        }
+
+        // Check if alarm existed before we close it (for showing dialog)
+        let alarmExisted = alarmRepository?.getAlarm(byAlarmId: alarmId) != nil ||
+                           alarmRepository?.getAlarm(byBackendId: alarmId) != nil
+
+        // Close alarm (try both alarmId and backendAlarmId)
+        alarmRepository?.closeAlarm(alarmId: alarmId, closedAt: closedAt)
+
+        // Also try to close by backend ID if alarm not found by alarmId
+        if let alarm = alarmRepository?.getAlarm(byBackendId: alarmId) {
+            alarmRepository?.closeAlarm(alarmId: alarm.alarmId, closedAt: closedAt)
+        }
+
+        // Refresh open alarms
+        openAlarms = alarmRepository?.getOpenAlarms() ?? []
+
+        // Stop alarm sound if no more open alarms
+        if openAlarms.isEmpty {
+            AlarmSoundPlayer.shared.stopAlarm()
+            print("[MumbleService] SSE: Stopped alarm sound - no more open alarms")
+        }
+
+        // Clear lastReceivedAlarm if it was this alarm
+        if lastReceivedAlarm?.alarmId == alarmId || lastReceivedAlarm?.backendAlarmId == alarmId {
+            lastReceivedAlarm = nil
+        }
+
+        // Dismiss start alarm alert if showing this alarm
+        if receivedAlarmForAlert?.alarmId == alarmId || receivedAlarmForAlert?.backendAlarmId == alarmId {
+            receivedAlarmForAlert = nil
+        }
+
+        // Show "alarm ended" dialog only if:
+        // 1. User can receive alarms
+        // 2. We actually had this alarm (it existed in our repository before closing)
+        // 3. It's not our own alarm that we triggered (we don't need to see "alarm ended" for our own alarm)
+        if userPermissions.canReceiveAlarm && !wasOwnAlarm {
+            // Only show dialog if we knew about this alarm (received it or had it stored)
+            // Note: After closeAlarm(), the alarm is marked as closed but still exists
+            if alarmExisted || lastReceivedAlarm?.alarmId == alarmId || lastReceivedAlarm?.backendAlarmId == alarmId {
+                let endMessage = EndAlarmMessage(
+                    id: alarmId,
+                    userId: 0,  // Not available via SSE
+                    userName: closedBy ?? "",
+                    displayName: closedBy ?? "Unbekannt"
+                )
+                print("[MumbleService] SSE: Showing end alarm dialog - closedBy=\(closedBy ?? "unknown")")
+                receivedEndAlarmForAlert = endMessage
+            } else {
+                print("[MumbleService] SSE: Not showing end dialog - alarm was not known to this device")
+            }
+        } else if wasOwnAlarm {
+            print("[MumbleService] SSE: Not showing end dialog - this was our own alarm")
+        }
+
+        print("[MumbleService] SSE: Alarm closed, open alarms: \(openAlarms.count)")
+    }
+
+    @MainActor
+    func alarmSSEConnectionStateChanged(isConnected: Bool) {
+        print("[MumbleService] Alarm SSE connection state: \(isConnected ? "connected" : "disconnected")")
+
+        // If SSE disconnects, do a one-time sync as fallback
+        if !isConnected {
+            Task {
+                await syncAlarms()
+            }
+        }
+    }
+
     // MARK: - Auto-Reconnect
 
     /// Schedule a reconnection attempt with exponential backoff.
@@ -480,10 +817,20 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
 
             // Resume position tracking for own alarms after reconnect
             resumePositionTrackingForOwnAlarms()
+
+            // Retry pending dispatcher cancel if any
+            await retryPendingDispatcherCancel()
         }
 
         // Start periodic alarm sync (every 20 seconds)
         startAlarmSyncTimer()
+
+        // Start SSE for real-time channel permission updates
+        startChannelUpdatesSSE()
+
+        // Start SSE for real-time alarm updates
+        startAlarmUpdatesSSE()
+
         print("[MumbleService] === onConnectionSuccess() done ===")
     }
 
@@ -512,9 +859,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
             let backendAlarmIds = Set(response.alarms.map { $0.id })
             print("[MumbleService] Backend has \(response.alarms.count) open alarms: \(backendAlarmIds)")
 
-            // Log voice message info for each backend alarm
+            // Log voice message and location info for each backend alarm
             for backendAlarm in response.alarms {
-                print("[MumbleService] Backend alarm \(backendAlarm.id): voiceMessage=\(backendAlarm.voiceMessage != nil ? "EXISTS (url=\(backendAlarm.voiceMessage!.url))" : "nil"), hasVoiceMessage=\(backendAlarm.hasVoiceMessage)")
+                print("[MumbleService] Backend alarm \(backendAlarm.id): lat=\(backendAlarm.latitude ?? 0), lon=\(backendAlarm.longitude ?? 0), voiceMessage=\(backendAlarm.voiceMessage != nil ? "EXISTS" : "nil")")
             }
 
             await MainActor.run {
@@ -542,25 +889,29 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
                     var reason = ""
 
                     // PROTECTION: Never delete our own active alarm (the one we triggered and is still active)
-                    if localAlarm.alarmId == currentAlarmId {
+                    let isOwnActiveAlarm = localAlarm.alarmId == currentAlarmId
+                    if isOwnActiveAlarm {
                         shouldKeep = true
                         reason = "OWN ACTIVE ALARM"
                         print("[MumbleService] Sync: PROTECTING own active alarm \(localAlarm.alarmId)")
                     }
 
-                    // First try: match by backendAlarmId
-                    if !shouldKeep, let backendId = localAlarm.backendAlarmId, backendAlarmIds.contains(backendId) {
+                    // First try: match by backendAlarmId (also for own active alarm to get backend data)
+                    if let backendId = localAlarm.backendAlarmId, backendAlarmIds.contains(backendId) {
                         if !matchedBackendIds.contains(backendId) {
                             shouldKeep = true
                             matchedId = backendId
-                            reason = "backendAlarmId match"
+                            if !isOwnActiveAlarm {
+                                reason = "backendAlarmId match"
+                            }
                             matchedBackendIds.insert(backendId)
                         }
                     }
 
-                    // Second try (only if no backendAlarmId): match by username + channel + time
+                    // Second try (if no backendAlarmId or own active alarm without match): match by username + channel + time
                     // But only match ONE local alarm per backend alarm
-                    if !shouldKeep && localAlarm.backendAlarmId == nil {
+                    // Also try for own active alarms without a backend match yet, to get backend data
+                    if matchedId == nil && localAlarm.backendAlarmId == nil {
                         for backend in response.alarms where !matchedBackendIds.contains(backend.id) {
                             let usernameMatch = backend.alarmStartUserName == localAlarm.triggeredByUsername
                             let channelMatch = backend.channelName == localAlarm.channelName
@@ -568,9 +919,11 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
                             let timeMatch = backend.triggeredAt != nil && abs(backend.triggeredAt! - localTimeMs) < 60000
 
                             if usernameMatch && channelMatch && timeMatch {
-                                shouldKeep = true
+                                if !isOwnActiveAlarm {
+                                    shouldKeep = true
+                                    reason = "fallback match"
+                                }
                                 matchedId = backend.id
-                                reason = "fallback match"
                                 matchedBackendIds.insert(backend.id)
                                 // Update local alarm with backend ID for future syncs
                                 repository.updateBackendAlarmId(alarmId: localAlarm.alarmId, backendAlarmId: backend.id)
@@ -600,20 +953,25 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
                             let backendHasVoice = backendAlarm.hasVoiceMessage
                             let needsUpdate = localAlarm.latitude != backendAlarm.latitude ||
                                               localAlarm.longitude != backendAlarm.longitude ||
-                                              localAlarm.hasRemoteVoiceMessage != backendHasVoice
+                                              localAlarm.hasRemoteVoiceMessage != backendHasVoice ||
+                                              localAlarm.voiceMessageText != backendAlarm.voiceMessageText
 
-                            print("[MumbleService] Sync: Alarm \(localAlarm.alarmId) - local hasRemoteVoiceMessage=\(localAlarm.hasRemoteVoiceMessage), backend has_voice_message=\(backendHasVoice)")
+                            print("[MumbleService] Sync: Alarm \(localAlarm.alarmId) - local hasRemoteVoiceMessage=\(localAlarm.hasRemoteVoiceMessage), backend has_voice_message=\(backendHasVoice), voiceText=\(backendAlarm.voiceMessageText != nil ? "SET" : "nil")")
 
                             if needsUpdate {
                                 print("[MumbleService] Sync: UPDATING alarm \(localAlarm.alarmId) with backend data (hasVoice=\(backendHasVoice))")
+                                print("[MumbleService] Sync: BEFORE update - localAlarm.lat=\(localAlarm.latitude ?? -999), lon=\(localAlarm.longitude ?? -999)")
+                                print("[MumbleService] Sync: Backend data - lat=\(backendAlarm.latitude ?? -999), lon=\(backendAlarm.longitude ?? -999)")
                                 repository.updateFromBackend(
                                     alarmId: localAlarm.alarmId,
                                     latitude: backendAlarm.latitude,
                                     longitude: backendAlarm.longitude,
                                     locationType: backendAlarm.locationType,
                                     locationUpdatedAt: backendLocationTimestamp,
-                                    hasRemoteVoiceMessage: backendHasVoice
+                                    hasRemoteVoiceMessage: backendHasVoice,
+                                    voiceMessageText: backendAlarm.voiceMessageText
                                 )
+                                print("[MumbleService] Sync: AFTER update - localAlarm.lat=\(localAlarm.latitude ?? -999), lon=\(localAlarm.longitude ?? -999)")
                             } else if backendLocationTimestamp != nil {
                                 // Always update locationUpdatedAt from backend (even if position unchanged)
                                 repository.updateLocationTimestamp(alarmId: localAlarm.alarmId, timestamp: backendLocationTimestamp!)
@@ -641,6 +999,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
 
                     // Create new local alarm from backend data (like Android)
                     print("[MumbleService] Sync: ADDING new alarm from backend: \(backendAlarm.id)")
+                    print("[MumbleService] Sync:   Backend location: lat=\(backendAlarm.latitude ?? -999), lon=\(backendAlarm.longitude ?? -999), type=\(backendAlarm.locationType ?? "nil")")
                     let now = Date()
                     let receivedAt: Date
                     if let triggeredAtMs = backendAlarm.triggeredAt {
@@ -672,14 +1031,22 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
                         longitude: backendAlarm.longitude,
                         locationType: backendAlarm.locationType,
                         locationUpdatedAt: locationUpdatedAt,
-                        hasRemoteVoiceMessage: backendAlarm.hasVoiceMessage
+                        hasRemoteVoiceMessage: backendAlarm.hasVoiceMessage,
+                        voiceMessageText: backendAlarm.voiceMessageText
                     )
                     repository.insertAlarm(newAlarm)
+                    print("[MumbleService] Sync:   Inserted alarm with lat=\(newAlarm.latitude ?? -999), lon=\(newAlarm.longitude ?? -999)")
                 }
 
                 // Refresh open alarms list
+                self.objectWillChange.send()
                 openAlarms = repository.getOpenAlarms()
                 print("[MumbleService] Sync complete: \(openAlarms.count) open alarms remaining")
+
+                // Debug: Log location for each alarm after sync
+                for alarm in openAlarms {
+                    print("[MumbleService] Sync:   Final alarm \(alarm.alarmId): lat=\(alarm.latitude ?? -999), lon=\(alarm.longitude ?? -999), hasLocation=\(alarm.hasLocation)")
+                }
 
                 // Log final state of each alarm after sync
                 for alarm in openAlarms {
@@ -702,6 +1069,10 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
         print("[MumbleService] === CONNECTION LOST ===")
         print("[MumbleService]   reason: \(reason)")
         logReconnectState("onConnectionLost entry")
+
+        // Stop SSE connections (will be restarted on reconnect)
+        stopChannelUpdatesSSE()
+        stopAlarmUpdatesSSE()
 
         if userDisconnected {
             print("[MumbleService] User disconnected - not auto-reconnecting")
@@ -1044,6 +1415,8 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
         cancelReconnect()
         stopHourlySettingsRefresh()
         stopAlarmSyncTimer()
+        stopChannelUpdatesSSE()
+        stopAlarmUpdatesSSE()
         stopTransmitting()
         stopAudioPlayback()
         mumbleConnection.disconnect()
@@ -1651,18 +2024,18 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
         }
     }
 
-    /// Start continuous position tracking
+    /// Start continuous position tracking for alarm using PositionTracker
     private func startPositionTracking(alarmId: String, backendAlarmId: String? = nil) {
         // Don't start if already tracking this same alarm
-        if locationService.isTracking && positionTrackingAlarmId == alarmId {
+        if positionTrackingAlarmId == alarmId && positionTracker.state != .idle {
             print("[MumbleService] Already tracking position for alarm \(alarmId)")
             return
         }
 
         // If tracking a different alarm, stop it first
-        if locationService.isTracking && positionTrackingAlarmId != alarmId {
+        if positionTrackingAlarmId != alarmId && positionTracker.state != .idle {
             print("[MumbleService] Stopping tracking for previous alarm \(positionTrackingAlarmId ?? "nil") to start tracking \(alarmId)")
-            locationService.stopTracking()
+            positionTracker.endBoost()
         }
 
         let resolvedBackendId = backendAlarmId ?? alarmBackendId
@@ -1672,10 +2045,24 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
         print("[MumbleService]   alarmBackendId: \(self.alarmBackendId ?? "nil")")
         print("[MumbleService]   resolvedBackendId: \(resolvedBackendId ?? "nil")")
 
-        positionTrackingAlarmId = alarmId
-        positionTrackingBackendId = resolvedBackendId
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash,
+              let backendId = resolvedBackendId else {
+            print("[MumbleService] Cannot start position tracking: missing credentials or backendId")
+            return
+        }
 
-        locationService.startTracking { [weak self] location in
+        positionTrackingAlarmId = alarmId
+        positionTrackingBackendId = backendId
+
+        // Use PositionTracker with boost mode for high-frequency tracking
+        // Session ID format: "alarm_{backendId}" for unified GPS endpoint
+        positionTracker.boost(
+            sessionId: "alarm_\(backendId)",
+            frequencySeconds: 10,
+            subdomain: subdomain,
+            certificateHash: certificateHash
+        ) { [weak self] location, _ in
             guard let self = self else { return }
 
             let locationType = self.locationService.getLocationType(for: location)
@@ -1689,7 +2076,6 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
             )
 
             // Update local database immediately (like Android does)
-            // Use local timestamp, don't wait for backend response
             Task { @MainActor in
                 self.alarmRepository?.updateLocation(
                     alarmId: alarmId,
@@ -1700,64 +2086,15 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
                 // Refresh openAlarms to trigger UI update
                 self.openAlarms = self.alarmRepository?.getOpenAlarms() ?? []
             }
-
-            // Upload position to backend individually (every 10 seconds)
-            Task {
-                await self.uploadPositionToBackend(location: location)
-            }
-        }
-    }
-
-    /// Upload a single position to the backend
-    private func uploadPositionToBackend(location: CLLocation) async {
-        print("[MumbleService] uploadPositionToBackend called")
-        print("[MumbleService]   tenantSubdomain: \(tenantSubdomain ?? "nil")")
-        print("[MumbleService]   certificateHash: \(credentials?.certificateHash.prefix(16) ?? "nil")...")
-        print("[MumbleService]   positionTrackingBackendId: \(positionTrackingBackendId ?? "nil")")
-
-        guard let subdomain = tenantSubdomain,
-              let certificateHash = credentials?.certificateHash,
-              let backendId = positionTrackingBackendId else {
-            print("[MumbleService] Cannot upload position: missing credentials or backendId")
-            print("[MumbleService]   subdomain missing: \(tenantSubdomain == nil)")
-            print("[MumbleService]   certificateHash missing: \(credentials?.certificateHash == nil)")
-            print("[MumbleService]   backendId missing: \(positionTrackingBackendId == nil)")
-            return
-        }
-
-        // Get battery info
-        let (batteryLevel, batteryCharging) = await MainActor.run {
-            let device = UIDevice.current
-            device.isBatteryMonitoringEnabled = true
-            let level = Int(device.batteryLevel * 100)
-            let charging = device.batteryState == .charging || device.batteryState == .full
-            return (level, charging)
-        }
-
-        let positionData = location.toPositionData(
-            batteryLevel: batteryLevel >= 0 ? batteryLevel : nil,
-            batteryCharging: batteryCharging
-        )
-
-        do {
-            // Upload to backend (local DB already updated in tracking callback)
-            let _ = try await apiClient.uploadPositions(
-                subdomain: subdomain,
-                certificateHash: certificateHash,
-                alarmId: backendId,
-                positions: [positionData]  // Single position, not batched
-            )
-            print("[MumbleService] Position uploaded: \(location.coordinate.latitude), \(location.coordinate.longitude)")
-        } catch {
-            print("[MumbleService] Position upload failed: \(error)")
-            // Non-fatal - position will be included in next update
+            // Note: Backend upload is handled by PositionTracker automatically
         }
     }
 
     /// Stop position tracking
     func stopPositionTracking() {
+        NSLog("[MumbleService] Stopping position tracking - alarmId=%@", positionTrackingAlarmId ?? "nil")
         print("[MumbleService] Stopping position tracking")
-        locationService.stopTracking()
+        positionTracker.endBoost()
         positionTrackingAlarmId = nil
         positionTrackingBackendId = nil
     }
@@ -1772,7 +2109,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
         }
 
         // Already tracking? Don't start again
-        if locationService.isTracking {
+        if positionTracker.state != .idle {
             print("[MumbleService] Position tracking already active")
             return
         }
@@ -1871,6 +2208,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
             return
         }
 
+        NSLog("[MumbleService] endAlarm called: alarmId=%@, currentAlarmId=%@, alarmBackendId=%@", alarmId, currentAlarmId ?? "nil", alarmBackendId ?? "nil")
         print("[MumbleService] endAlarm called for alarmId: \(alarmId)")
 
         // Stop position tracking if this is our alarm
@@ -1978,6 +2316,422 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
             self.alarmTriggerState = .idle
             self.currentAlarmId = nil
         }
+    }
+
+    // MARK: - Dispatcher Request
+
+    /// Start GPS warm-up when user begins holding the dispatcher request button
+    func startDispatcherRequestWarmUp() {
+        print("[MumbleService] Starting dispatcher request warm-up (GPS)")
+        locationService.warmUp()
+
+        if !locationService.isLocationAvailable {
+            locationService.requestAuthorization()
+        }
+    }
+
+    /// Cancel dispatcher request warm-up (user released button before hold completed)
+    func cancelDispatcherRequestWarmUp() {
+        print("[MumbleService] Canceling dispatcher request warm-up")
+        locationService.stopWarmUp()
+    }
+
+    /// Start voice recording for dispatcher request
+    func startDispatcherVoiceRecording() {
+        print("[MumbleService] Starting voice recording for dispatcher request")
+        print("[MumbleService]   maxDuration: \(alarmSettings.dispatcherVoiceMaxDuration)s")
+        voiceRecorder.maxDuration = TimeInterval(alarmSettings.dispatcherVoiceMaxDuration)
+        dispatcherVoiceFilePath = voiceRecorder.startRecording()
+
+        let recordingStarted = dispatcherVoiceFilePath != nil
+        print("[MumbleService]   voiceFilePath: \(dispatcherVoiceFilePath?.lastPathComponent ?? "nil")")
+
+        DispatchQueue.main.async {
+            self.isRecordingVoice = recordingStarted && self.voiceRecorder.isRecording
+        }
+    }
+
+    /// Cancel voice recording for dispatcher request (user pressed cancel button)
+    /// Calls the backend API to update the request status to "cancelled"
+    func cancelDispatcherVoiceRecording() async {
+        print("[MumbleService] Canceling dispatcher voice recording")
+
+        // 1. Stop the recording immediately
+        voiceRecorder.cancelRecording()
+        dispatcherVoiceFilePath = nil
+
+        await MainActor.run {
+            self.isRecordingVoice = false
+        }
+
+        // 2. Call the cancel API if we have a request ID
+        guard let requestId = dispatcherRequestBackendId else {
+            print("[MumbleService] No dispatcher request ID to cancel")
+            await resetDispatcherState()
+            return
+        }
+
+        // 3. Update local cache immediately for instant UI feedback
+        dispatcherHistoryCache.updateLocalStatus(id: requestId, status: "cancelled")
+        await MainActor.run {
+            self.dispatcherRequestHistory = self.dispatcherHistoryCache.getItems()
+        }
+
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else {
+            print("[MumbleService] Missing subdomain or certificate hash for cancel API")
+            await resetDispatcherState()
+            return
+        }
+
+        do {
+            try await apiClient.cancelDispatcherRequest(
+                subdomain: subdomain,
+                certificateHash: certificateHash,
+                requestId: requestId
+            )
+            print("[MumbleService] Dispatcher request cancelled successfully on backend")
+
+            // Show success toast
+            await MainActor.run {
+                self.showDispatcherCancelledToast = true
+            }
+
+            // Clear pending cancel (if any)
+            pendingCancelRequestId = nil
+
+        } catch {
+            print("[MumbleService] Failed to cancel dispatcher request on backend: \(error)")
+
+            // Store the request ID for retry after reconnect
+            pendingCancelRequestId = requestId
+
+            // Trigger reconnect
+            print("[MumbleService] Triggering reconnect to retry cancel")
+            Task {
+                await reconnect()
+            }
+        }
+
+        await resetDispatcherState()
+    }
+
+    /// Reset dispatcher request state after cancel or completion
+    private func resetDispatcherState() async {
+        await MainActor.run {
+            self.isDispatcherRequestActive = false
+            self.currentDispatcherRequestId = nil
+            self.dispatcherRequestBackendId = nil
+        }
+        positionTracker.endBoost()
+    }
+
+    /// Retry pending cancel request after reconnect (called from reconnect logic)
+    func retryPendingDispatcherCancel() async {
+        guard let requestId = pendingCancelRequestId else { return }
+
+        print("[MumbleService] Retrying pending dispatcher cancel for request: \(requestId)")
+
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else {
+            print("[MumbleService] Missing credentials for retry")
+            pendingCancelRequestId = nil
+            return
+        }
+
+        do {
+            try await apiClient.cancelDispatcherRequest(
+                subdomain: subdomain,
+                certificateHash: certificateHash,
+                requestId: requestId
+            )
+            print("[MumbleService] Pending dispatcher cancel succeeded")
+
+            await MainActor.run {
+                self.showDispatcherCancelledToast = true
+            }
+
+            pendingCancelRequestId = nil
+        } catch {
+            print("[MumbleService] Retry of dispatcher cancel failed: \(error)")
+            // Keep pendingCancelRequestId for next reconnect attempt
+        }
+    }
+
+    /// Trigger dispatcher request - called when hold duration is reached
+    /// Sends request to backend immediately, then updates location asynchronously
+    func triggerDispatcherRequest() async {
+        guard userPermissions.canCallDispatcher else {
+            print("[MumbleService] User does not have permission to call dispatcher")
+            return
+        }
+
+        guard connectionState == .synchronized else {
+            print("[MumbleService] Cannot send dispatcher request - not connected")
+            return
+        }
+
+        await MainActor.run {
+            isDispatcherRequestActive = true
+        }
+
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else {
+            print("[MumbleService] Missing subdomain or certificate hash for backend API")
+            return
+        }
+
+        // Send request to backend immediately WITHOUT waiting for location
+        // Location will be updated via position tracking
+        let request = DispatcherRequestCreateRequest(
+            latitude: nil,
+            longitude: nil,
+            locationType: nil
+        )
+
+        do {
+            let response = try await apiClient.createDispatcherRequest(
+                subdomain: subdomain,
+                certificateHash: certificateHash,
+                request: request
+            )
+
+            print("[MumbleService] Dispatcher request created: id=\(response.id), queuePosition=\(response.queuePosition)")
+
+            await MainActor.run {
+                currentDispatcherRequestId = response.id
+                dispatcherRequestBackendId = response.id
+            }
+
+            // Add to local cache immediately for instant UI update
+            dispatcherHistoryCache.addLocalRequest(id: response.id, status: "pending")
+            await MainActor.run {
+                self.dispatcherRequestHistory = self.dispatcherHistoryCache.getItems()
+            }
+
+            // Start position tracking - PositionTracker will send location updates including initial position
+            startDispatcherPositionTracking(requestId: response.id)
+
+            // Stop GPS warm-up (PositionTracker handles tracking from here)
+            locationService.stopWarmUp()
+
+        } catch {
+            print("[MumbleService] Failed to create dispatcher request: \(error)")
+            await MainActor.run {
+                isDispatcherRequestActive = false
+            }
+        }
+    }
+
+    /// Submit dispatcher voice recording after recording is complete
+    func submitDispatcherVoiceRecording() async {
+        print("[MumbleService] Submitting dispatcher voice recording...")
+        print("[MumbleService]   dispatcherRequestBackendId=\(dispatcherRequestBackendId ?? "nil")")
+        print("[MumbleService]   dispatcherVoiceFilePath=\(dispatcherVoiceFilePath?.lastPathComponent ?? "nil")")
+
+        // Stop recording and get file path
+        var voicePath = stopVoiceRecording()
+
+        // Fallback: use stored path if stopVoiceRecording returned nil
+        if voicePath == nil, let storedPath = dispatcherVoiceFilePath {
+            print("[MumbleService] Using stored dispatcherVoiceFilePath as fallback")
+            voicePath = storedPath
+        }
+
+        guard let voicePath = voicePath else {
+            print("[MumbleService] No voice recording to submit")
+            return
+        }
+
+        // Wait for backend request ID (max 30 seconds)
+        let maxWaitSeconds = 30
+        var waitedSeconds = 0
+
+        while dispatcherRequestBackendId == nil && waitedSeconds < maxWaitSeconds {
+            print("[MumbleService] Waiting for dispatcher request ID... (\(waitedSeconds + 1)/\(maxWaitSeconds)s)")
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            waitedSeconds += 1
+        }
+
+        guard let backendId = dispatcherRequestBackendId else {
+            print("[MumbleService] ERROR: No dispatcher request ID after \(maxWaitSeconds)s - cannot upload voice message!")
+            return
+        }
+
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else {
+            print("[MumbleService] Cannot upload voice: missing credentials")
+            return
+        }
+
+        print("[MumbleService] Uploading dispatcher voice message to request: \(backendId)")
+
+        do {
+            try await apiClient.uploadDispatcherRequestVoice(
+                subdomain: subdomain,
+                certificateHash: certificateHash,
+                requestId: backendId,
+                filePath: voicePath
+            )
+            print("[MumbleService] Dispatcher voice message uploaded successfully!")
+        } catch {
+            print("[MumbleService] Failed to upload dispatcher voice message: \(error)")
+        }
+
+        dispatcherVoiceFilePath = nil
+    }
+
+    /// Start position tracking for dispatcher request using PositionTracker
+    private func startDispatcherPositionTracking(requestId: String) {
+        print("[MumbleService] Starting position tracking for dispatcher request: \(requestId)")
+
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else {
+            print("[MumbleService] Cannot start dispatcher position tracking: missing credentials")
+            return
+        }
+
+        // Use PositionTracker with boost mode for high-frequency tracking
+        // Session ID format: "dispatcher_{requestId}" for unified GPS endpoint
+        positionTracker.boost(
+            sessionId: "dispatcher_\(requestId)",
+            frequencySeconds: 10,
+            subdomain: subdomain,
+            certificateHash: certificateHash
+        )
+        // Note: No callback needed for dispatcher - just position upload handled by PositionTracker
+    }
+
+    /// Stop dispatcher request tracking
+    func stopDispatcherRequest() {
+        print("[MumbleService] Stopping dispatcher request")
+        positionTracker.endBoost()
+        cancelVoiceRecording()
+
+        DispatchQueue.main.async {
+            self.isDispatcherRequestActive = false
+            self.currentDispatcherRequestId = nil
+            self.dispatcherRequestBackendId = nil
+            self.dispatcherVoiceFilePath = nil
+        }
+    }
+
+    /// Fetch dispatcher request history for the current user
+    func fetchDispatcherRequestHistory() async {
+        print("[MumbleService] fetchDispatcherRequestHistory() called")
+        print("[MumbleService]   tenantSubdomain: \(tenantSubdomain ?? "nil")")
+        if let hash = credentials?.certificateHash {
+            print("[MumbleService]   certificateHash: \(hash.prefix(20))...")
+        } else {
+            print("[MumbleService]   certificateHash: nil")
+        }
+
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else {
+            print("[MumbleService] Cannot fetch dispatcher history: missing credentials")
+            return
+        }
+
+        await MainActor.run {
+            isLoadingDispatcherHistory = true
+        }
+
+        do {
+            print("[MumbleService] Calling API getDispatcherRequestHistory...")
+            let response = try await apiClient.getDispatcherRequestHistory(
+                subdomain: subdomain,
+                certificateHash: certificateHash,
+                limit: 10
+            )
+
+            // Sync with local cache (merges backend data with local changes)
+            dispatcherHistoryCache.syncWithBackend(response.requests)
+
+            await MainActor.run {
+                // Update UI from synced cache
+                self.dispatcherRequestHistory = self.dispatcherHistoryCache.getItems()
+                self.isLoadingDispatcherHistory = false
+            }
+
+            print("[MumbleService] Fetched \(response.requests.count) dispatcher history items from backend")
+            for (index, item) in response.requests.enumerated() {
+                print("[MumbleService]   [\(index)] id=\(item.id.prefix(8))... status=\(item.status)")
+            }
+        } catch {
+            print("[MumbleService] Failed to fetch dispatcher history: \(error)")
+            await MainActor.run {
+                self.isLoadingDispatcherHistory = false
+            }
+        }
+    }
+
+    /// Flag to control SSE reconnection loop
+    private var shouldRunDispatcherHistorySSE = false
+
+    /// Start SSE stream for dispatcher history updates
+    /// Call when user navigates to dispatcher tab
+    /// Automatically reconnects when connection is reset (e.g., by Cloudflare after ~60s)
+    func startDispatcherHistoryStream() {
+        guard !shouldRunDispatcherHistorySSE else { return }
+
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else { return }
+
+        shouldRunDispatcherHistorySSE = true
+
+        dispatcherHistorySSETask = Task {
+            var reconnectCount = 0
+            let maxReconnectDelay: UInt64 = 10_000_000_000 // 10 seconds max
+
+            while shouldRunDispatcherHistorySSE && !Task.isCancelled {
+                do {
+                    let stream = apiClient.streamDispatcherRequestHistory(
+                        subdomain: subdomain,
+                        certificateHash: certificateHash,
+                        limit: 10
+                    )
+
+                    reconnectCount = 0
+
+                    for try await response in stream {
+                        if Task.isCancelled || !shouldRunDispatcherHistorySSE {
+                            return
+                        }
+
+                        dispatcherHistoryCache.syncWithBackend(response.requests)
+
+                        await MainActor.run {
+                            self.dispatcherRequestHistory = self.dispatcherHistoryCache.getItems()
+                            self.isLoadingDispatcherHistory = false
+                        }
+                    }
+
+                } catch {
+                    if Task.isCancelled || !shouldRunDispatcherHistorySSE {
+                        return
+                    }
+
+                    reconnectCount += 1
+                    let delay = min(UInt64(reconnectCount) * 2_000_000_000, maxReconnectDelay)
+                    try? await Task.sleep(nanoseconds: delay)
+                }
+            }
+            await MainActor.run {
+                self.dispatcherHistorySSETask = nil
+            }
+        }
+    }
+
+    /// Stop SSE stream for dispatcher history updates
+    /// Call when user leaves dispatcher tab
+    func stopDispatcherHistoryStream() {
+        guard shouldRunDispatcherHistorySSE else {
+            return
+        }
+
+        shouldRunDispatcherHistorySSE = false
+        dispatcherHistorySSETask?.cancel()
+        dispatcherHistorySSETask = nil
     }
 
     // MARK: - MumbleConnectionDelegate
@@ -2098,24 +2852,24 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
 
     private func handleChannelSync(newChannelId: UInt32) {
         let viewedChannel = currentlyViewedChannelId
+        print("[MumbleService] handleChannelSync: newChannelId=\(newChannelId), viewedChannel=\(viewedChannel ?? 0), tenantChannelId=\(tenantChannelId)")
 
         // If user is viewing a channel that doesn't match server state
         if let viewed = viewedChannel, viewed != newChannelId {
             print("[MumbleService] Channel mismatch: viewing \(viewed) but server says \(newChannelId)")
 
             if newChannelId == 0 || newChannelId == tenantChannelId {
-                // User was moved to root/tenant channel - navigate back to list
                 print("[MumbleService] User moved to tenant/root channel - navigating back to list")
                 navigateBackToList = true
             } else {
-                // User is in a different channel - navigate to correct one
                 print("[MumbleService] User in different channel - navigating to \(newChannelId)")
                 navigateToChannel = newChannelId
             }
         } else if viewedChannel == nil && newChannelId != 0 && newChannelId != tenantChannelId {
-            // User is in a channel but viewing list - navigate to channel
-            print("[MumbleService] User in channel \(newChannelId) but viewing list - navigating")
+            print("[MumbleService] User in channel \(newChannelId) but viewing list - triggering navigation")
             navigateToChannel = newChannelId
+        } else {
+            print("[MumbleService] No navigation needed (viewedChannel=\(viewedChannel ?? 0), newChannelId=\(newChannelId))")
         }
     }
 
@@ -2217,10 +2971,12 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
 
     @MainActor
     private func handleStartAlarm(_ message: StartAlarmMessage, senderSession: UInt32) {
+        NSLog("[MumbleService] TREE: START_ALARM id=%@, senderSession=%u, localSession=%u", message.id, senderSession, localSession)
         print("[MumbleService] START_ALARM received: id=\(message.id), from=\(message.displayName), channel=\(message.channelName)")
 
         // Ignore our own alarm messages
         if senderSession == localSession {
+            NSLog("[MumbleService] TREE: Ignoring own START_ALARM - session match")
             print("[MumbleService] Ignoring own START_ALARM")
             return
         }
@@ -2255,6 +3011,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
             // Play alarm sound
             let selectedSound = UserDefaults.standard.selectedAlarmSound
             AlarmSoundPlayer.shared.startAlarm(sound: selectedSound)
+            NSLog("[MumbleService] TREE: TRIGGERING ALERT for alarm %@", alarm.alarmId)
             print("[MumbleService] Started alarm sound: \(selectedSound.displayName)")
 
             // Trigger alert dialog
@@ -2352,7 +3109,19 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate {
     /// Refresh open alarms from repository
     @MainActor
     func refreshOpenAlarms() {
+        self.objectWillChange.send()
         openAlarms = alarmRepository?.getOpenAlarms() ?? []
+        print("[MumbleService] refreshOpenAlarms: \(openAlarms.count) alarms")
+    }
+
+    /// Sync open alarms with backend and refresh local list
+    /// Call this when opening the open alarms screen to ensure fresh data
+    func syncAndRefreshOpenAlarms() async {
+        print("[MumbleService] syncAndRefreshOpenAlarms() called")
+        await syncAlarms()
+        await MainActor.run {
+            refreshOpenAlarms()
+        }
     }
 
     func audioReceived(session: UInt32, pcmData: UnsafePointer<Int16>, frames: Int, sequence: Int64) {

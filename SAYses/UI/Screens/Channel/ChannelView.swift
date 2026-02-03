@@ -13,6 +13,7 @@ struct ChannelView: View {
     @State private var pttPressStartTime: Date?  // When current press started
     @State private var alarmTextVisible = true
     @State private var showOpenAlarms = false
+    @StateObject private var imageCache = ChannelImageCache.shared
     @AppStorage("doubleClickToggleMode") private var doubleClickToggleMode = false
     @AppStorage("keepAwake") private var keepAwake = true
     @AppStorage("transmissionMode") private var transmissionModeRaw = TransmissionMode.pushToTalk.rawValue
@@ -180,10 +181,10 @@ struct ChannelView: View {
 
     private var channelHeader: some View {
         HStack(spacing: 12) {
-            Button(action: { showMembers = true }) {
-                Image(systemName: "person.3.fill")
-                    .font(.title)
-            }
+            // Channel image or fallback icon
+            channelHeaderImage
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
             Text(channel.name)
                 .font(.title2)
@@ -212,6 +213,31 @@ struct ChannelView: View {
             }
         }
         .padding()
+        .onAppear {
+            imageCache.loadImageIfNeeded(
+                channelId: channel.id,
+                subdomain: mumbleService.tenantSubdomain,
+                certificateHash: mumbleService.credentials?.certificateHash
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var channelHeaderImage: some View {
+        if let image = imageCache.image(for: channel.id) {
+            image
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else {
+            // Fallback icon
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.semparaPrimary.opacity(0.15))
+                Image(systemName: "waveform")
+                    .font(.title2)
+                    .foregroundStyle(Color.semparaPrimary)
+            }
+        }
     }
 
     private func bluetoothIndicator(deviceName: String) -> some View {
@@ -228,6 +254,12 @@ struct ChannelView: View {
 
     private var muteToggle: some View {
         HStack {
+            // Team members button
+            Button(action: { showMembers = true }) {
+                Image(systemName: "person.3.fill")
+                    .font(.title)
+            }
+
             Button(action: { viewModel.toggleMute() }) {
                 Image(systemName: viewModel.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                     .font(.title)

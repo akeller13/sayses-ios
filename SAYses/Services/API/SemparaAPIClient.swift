@@ -6,12 +6,19 @@ class SemparaAPIClient {
     private let tenantURLTemplate = "https://%@.sayseswork.com"
 
     private let session: URLSession
+    private let sseSession: URLSession  // Separate session for SSE with longer timeouts
 
     init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 60
         self.session = URLSession(configuration: config)
+
+        // SSE session with much longer timeouts for streaming connections
+        let sseConfig = URLSessionConfiguration.default
+        sseConfig.timeoutIntervalForRequest = 300  // 5 minutes between data
+        sseConfig.timeoutIntervalForResource = 86400  // 24 hours max
+        self.sseSession = URLSession(configuration: sseConfig)
     }
 
     // MARK: - Workspace Lookup
@@ -399,6 +406,55 @@ class SemparaAPIClient {
         return try decoder.decode(PositionUploadResponse.self, from: data)
     }
 
+    // MARK: - Unified GPS Tracking API
+
+    /// Upload GPS positions to unified endpoint - POST /api/gps/{session_id}/positions
+    /// Backend routes based on session_id prefix:
+    /// - `alarm_{id}` → AlarmPositionLog
+    /// - `dispatcher_{id}` → DispatcherRequestPositionLog
+    /// - `tracking_{hash}` → GPSPositionLog (general tracking)
+    func uploadGPSPositions(subdomain: String, certificateHash: String, sessionId: String, positions: [PositionData]) async throws {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/gps/\(sessionId)/positions") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let request = PositionBatchRequest(positions: positions)
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let bodyData = try encoder.encode(request)
+        let bodyJson = String(data: bodyData, encoding: .utf8) ?? ""
+        let signature = signWithBody(certificateHash: certificateHash, timestamp: timestamp, body: bodyJson)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        urlRequest.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        urlRequest.setValue(signature, forHTTPHeaderField: "X-Signature")
+        urlRequest.httpBody = bodyData
+
+        NSLog("[API] POST %@ - %d positions", url.absoluteString, positions.count)
+        print("[API] POST \(url.absoluteString) - \(positions.count) positions")
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        if httpResponse.statusCode != 200 && httpResponse.statusCode != 201 {
+            let responseStr = String(data: data, encoding: .utf8) ?? "no body"
+            NSLog("[API] GPS upload failed: HTTP %d - %@", httpResponse.statusCode, responseStr)
+            print("[API] GPS upload failed: HTTP \(httpResponse.statusCode) - \(responseStr)")
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        NSLog("[API] GPS positions uploaded successfully for session %@", sessionId)
+        print("[API] GPS positions uploaded successfully")
+    }
+
     /// Get open alarms - GET /api/user/open-alarms
     /// NOTE: This endpoint uses a DIFFERENT signature format than other GET endpoints!
     /// Format: timestamp + certificateHash (no colon separator)
@@ -442,7 +498,7 @@ class SemparaAPIClient {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
 
-        // Debug: Try to extract voice_message field from raw JSON
+        // Debug: Try to extract voice_message and voice_message_text fields from raw JSON
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let alarmsArray = json["alarms"] as? [[String: Any]] {
             print("[API] DEBUG: Raw JSON has \(alarmsArray.count) alarms")
@@ -452,6 +508,11 @@ class SemparaAPIClient {
                 } else {
                     print("[API] DEBUG: Alarm[\(idx)] voice_message is NIL in raw JSON")
                 }
+                if let voiceText = alarmJson["voice_message_text"] as? String {
+                    print("[API] DEBUG: Alarm[\(idx)] voice_message_text RAW: \(voiceText)")
+                } else {
+                    print("[API] DEBUG: Alarm[\(idx)] voice_message_text is NIL in raw JSON")
+                }
             }
         }
 
@@ -459,7 +520,8 @@ class SemparaAPIClient {
             let result = try decoder.decode(OpenAlarmsResponse.self, from: data)
             print("[API] Decoded \(result.alarms.count) open alarms")
             for alarm in result.alarms {
-                print("[API]   Alarm \(alarm.id): voiceMessage=\(alarm.voiceMessage != nil ? "EXISTS url=\(alarm.voiceMessage!.url)" : "NIL")")
+                print("[API]   Alarm \(alarm.id): lat=\(alarm.latitude ?? -999), lon=\(alarm.longitude ?? -999), locationType=\(alarm.locationType ?? "nil")")
+                print("[API]   Alarm \(alarm.id): voiceMessage=\(alarm.voiceMessage != nil ? "EXISTS url=\(alarm.voiceMessage!.url)" : "NIL"), voiceMessageText=\(alarm.voiceMessageText ?? "NIL")")
             }
             return result
         } catch {
@@ -480,6 +542,299 @@ class SemparaAPIClient {
                 }
             }
             throw APIError.decodingError
+        }
+    }
+
+    // MARK: - Dispatcher Request API (User)
+
+    /// Create a new dispatcher request - POST /api/user/dispatcher-request
+    /// Signature format: {certificate_hash}:{timestamp}:{request_body_json}
+    func createDispatcherRequest(subdomain: String, certificateHash: String, request: DispatcherRequestCreateRequest) async throws -> DispatcherRequestCreateResponse {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/user/dispatcher-request") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let bodyData = try encoder.encode(request)
+        let bodyJson = String(data: bodyData, encoding: .utf8) ?? ""
+        let signature = signWithBody(certificateHash: certificateHash, timestamp: timestamp, body: bodyJson)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        urlRequest.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        urlRequest.setValue(signature, forHTTPHeaderField: "X-Signature")
+        urlRequest.httpBody = bodyData
+
+        print("[API] POST /api/user/dispatcher-request - creating dispatcher request")
+        print("[API]   URL: \(url)")
+        print("[API]   Request body: \(bodyJson)")
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        print("[API]   Response status: \(httpResponse.statusCode)")
+        if let responseBody = String(data: data, encoding: .utf8) {
+            print("[API]   Response body: \(responseBody)")
+        }
+
+        guard httpResponse.statusCode == 200 || httpResponse.statusCode == 201 else {
+            print("[API] createDispatcherRequest failed: HTTP \(httpResponse.statusCode)")
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(DispatcherRequestCreateResponse.self, from: data)
+    }
+
+    /// Upload voice message for dispatcher request - POST /api/user/dispatcher-request/{id}/voice
+    /// Signature format: {certificate_hash}:{timestamp}:{request_id}
+    func uploadDispatcherRequestVoice(subdomain: String, certificateHash: String, requestId: String, filePath: URL) async throws {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/user/dispatcher-request/\(requestId)/voice") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let message = "\(certificateHash):\(timestamp):\(requestId)"
+        let signature = signRaw(certificateHash: certificateHash, message: message)
+
+        // Read file data
+        let fileData = try Data(contentsOf: filePath)
+
+        // Build multipart body
+        let boundary = UUID().uuidString
+        var body = Data()
+
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"voice.m4a\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        urlRequest.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        urlRequest.setValue(signature, forHTTPHeaderField: "X-Signature")
+        urlRequest.httpBody = body
+
+        print("[API] POST /api/user/dispatcher-request/\(requestId)/voice - uploading voice message (\(fileData.count) bytes)")
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        print("[API]   Response status: \(httpResponse.statusCode)")
+        if let responseBody = String(data: data, encoding: .utf8) {
+            print("[API]   Response body: \(responseBody)")
+        }
+
+        guard httpResponse.statusCode == 200 || httpResponse.statusCode == 201 else {
+            print("[API] uploadDispatcherRequestVoice failed: HTTP \(httpResponse.statusCode)")
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        print("[API] Dispatcher request voice message uploaded successfully")
+    }
+
+    /// Cancel a dispatcher request - POST /api/user/dispatcher-request/{id}/cancel
+    /// Signature format: {certificate_hash}:{timestamp}:{request_id}
+    func cancelDispatcherRequest(subdomain: String, certificateHash: String, requestId: String) async throws {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/user/dispatcher-request/\(requestId)/cancel") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let message = "\(certificateHash):\(timestamp):\(requestId)"
+        let signature = signRaw(certificateHash: certificateHash, message: message)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        urlRequest.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        urlRequest.setValue(signature, forHTTPHeaderField: "X-Signature")
+
+        print("[API] POST /api/user/dispatcher-request/\(requestId)/cancel - cancelling dispatcher request")
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        print("[API]   Response status: \(httpResponse.statusCode)")
+        if let responseBody = String(data: data, encoding: .utf8) {
+            print("[API]   Response body: \(responseBody)")
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            print("[API] cancelDispatcherRequest failed: HTTP \(httpResponse.statusCode)")
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        print("[API] Dispatcher request cancelled successfully")
+    }
+
+    /// Update position for dispatcher request - POST /api/user/dispatcher-request/{id}/position
+    /// Signature format: {certificate_hash}:{timestamp}:{request_body_json}
+    func updateDispatcherRequestPosition(subdomain: String, certificateHash: String, requestId: String, position: DispatcherPositionUpdate) async throws {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/user/dispatcher-request/\(requestId)/position") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let bodyData = try encoder.encode(position)
+        let bodyJson = String(data: bodyData, encoding: .utf8) ?? ""
+        let signature = signWithBody(certificateHash: certificateHash, timestamp: timestamp, body: bodyJson)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        urlRequest.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        urlRequest.setValue(signature, forHTTPHeaderField: "X-Signature")
+        urlRequest.httpBody = bodyData
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            print("[API] updateDispatcherRequestPosition failed: HTTP \(httpResponse.statusCode)")
+            if let responseBody = String(data: data, encoding: .utf8) {
+                print("[API]   Response body: \(responseBody)")
+            }
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        print("[API] Dispatcher request position updated successfully")
+    }
+
+    /// Get dispatcher request history for the current user - GET /api/user/dispatcher-request-history
+    /// Signature format: {timestamp}{certificate_hash} (no colon, timestamp first)
+    func getDispatcherRequestHistory(subdomain: String, certificateHash: String, limit: Int = 5) async throws -> DispatcherRequestHistoryResponse {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/user/dispatcher-request-history?limit=\(limit)") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        // Signature format: {timestamp}{certificate_hash} (no colon)
+        let signatureData = "\(timestamp)\(certificateHash)"
+        let signature = signRaw(certificateHash: certificateHash, message: signatureData)
+
+        print("[API] GET \(url.absoluteString)")
+
+        var request = URLRequest(url: url)
+        request.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        request.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        request.setValue(signature, forHTTPHeaderField: "X-Signature")
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        print("[API] Dispatcher request history response status: \(httpResponse.statusCode)")
+
+        guard httpResponse.statusCode == 200 else {
+            if let responseBody = String(data: data, encoding: .utf8) {
+                print("[API]   Response body: \(responseBody)")
+            }
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(DispatcherRequestHistoryResponse.self, from: data)
+    }
+
+    /// Stream dispatcher request history updates via SSE
+    /// GET /api/user/dispatcher-request-history/stream
+    /// Returns an AsyncThrowingStream that yields DispatcherRequestHistoryResponse on each update
+    func streamDispatcherRequestHistory(
+        subdomain: String,
+        certificateHash: String,
+        limit: Int = 10
+    ) -> AsyncThrowingStream<DispatcherRequestHistoryResponse, Error> {
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let baseURL = getTenantBaseURL(subdomain: subdomain)
+                    guard let url = URL(string: "\(baseURL)/api/user/dispatcher-request-history/stream?limit=\(limit)") else {
+                        continuation.finish(throwing: APIError.invalidURL)
+                        return
+                    }
+
+                    let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+                    // Signature format: {timestamp}{certificate_hash} (no colon)
+                    let signatureData = "\(timestamp)\(certificateHash)"
+                    let signature = signRaw(certificateHash: certificateHash, message: signatureData)
+
+                    var request = URLRequest(url: url)
+                    request.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+                    request.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+                    request.setValue(signature, forHTTPHeaderField: "X-Signature")
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+                    let (bytes, response) = try await sseSession.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: APIError.invalidResponse)
+                        return
+                    }
+
+                    guard httpResponse.statusCode == 200 else {
+                        continuation.finish(throwing: APIError.httpError(statusCode: httpResponse.statusCode))
+                        return
+                    }
+
+                    let decoder = JSONDecoder()
+                    decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+
+                        if line.hasPrefix("data: ") {
+                            let jsonString = String(line.dropFirst(6))
+                            if let jsonData = jsonString.data(using: .utf8) {
+                                if let historyResponse = try? decoder.decode(DispatcherRequestHistoryResponse.self, from: jsonData) {
+                                    continuation.yield(historyResponse)
+                                }
+                            }
+                        }
+                    }
+
+                    continuation.finish()
+
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+            }
         }
     }
 
@@ -695,6 +1050,47 @@ class SemparaAPIClient {
 
         return hash.map { String(format: "%02x", $0) }.joined()
     }
+
+    // MARK: - Channel Image
+
+    /// Get channel image by Mumble channel ID - GET /api/mobile/channel/{mumble_channel_id}/image
+    /// Signature format: {certificate_hash}:{timestamp}:{mumble_channel_id}
+    /// Returns image Data or nil if no image exists
+    func getChannelImage(subdomain: String, certificateHash: String, mumbleChannelId: UInt32) async throws -> Data? {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/mobile/channel/\(mumbleChannelId)/image") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let message = "\(certificateHash):\(timestamp):\(mumbleChannelId)"
+        let signature = signRaw(certificateHash: certificateHash, message: message)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        request.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        request.setValue(signature, forHTTPHeaderField: "X-Signature")
+        // Bypass HTTP cache to always fetch fresh images from server
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        // 404 means no image - return nil
+        if httpResponse.statusCode == 404 {
+            return nil
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        return data
+    }
 }
 
 // MARK: - Alarm Request/Response Models
@@ -730,6 +1126,52 @@ struct PositionUploadResponse: Codable {
     let positionUpdatedAt: String?  // ISO8601 format from backend
 }
 
+// MARK: - Dispatcher Request Models
+
+struct DispatcherRequestCreateRequest: Codable {
+    let latitude: Double?
+    let longitude: Double?
+    let locationType: String?
+}
+
+struct DispatcherRequestCreateResponse: Codable {
+    let id: String
+    let queuePosition: Int
+    let status: String
+    let createdAt: Int64
+}
+
+struct DispatcherPositionUpdate: Codable {
+    let latitude: Double
+    let longitude: Double
+    let accuracy: Float?
+    let altitude: Double?
+    let speed: Float?
+    let bearing: Float?
+    let batteryLevel: Float?
+    let batteryCharging: Bool?
+    let locationType: String?
+    let recordedAt: Int64
+}
+
+// MARK: - Dispatcher Request History
+
+struct DispatcherRequestHistoryResponse: Codable {
+    let requests: [DispatcherRequestHistoryItem]
+}
+
+struct DispatcherRequestHistoryItem: Codable, Identifiable {
+    let id: String
+    let serviceGroupName: String?
+    let status: String
+    let createdAt: Int64?
+    let startedAt: Int64?
+    let completedAt: Int64?
+    let handledByUserDisplayname: String?
+    let requestUserDisplayname: String?
+    let waitTimeSeconds: Int?
+}
+
 struct OpenAlarmsResponse: Codable {
     let alarms: [OpenAlarmData]
 }
@@ -755,6 +1197,7 @@ struct OpenAlarmData: Codable {
     let locationType: String?               // location_type
     let voiceMessage: VoiceMessageInfo?     // voice_message object with URL
     let positionUpdatedAt: Int64?           // position_updated_at - timestamp of last position update
+    let voiceMessageText: String?           // voice_message_text - transcription of voice message
 
     /// Convenience property to check if voice message exists
     var hasVoiceMessage: Bool {

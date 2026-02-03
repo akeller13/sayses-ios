@@ -627,19 +627,6 @@ OSStatus AudioEngineImpl::captureCallback(void* inRefCon,
 
     if (status == noErr) {
         int16_t* data = static_cast<int16_t*>(engine->captureBufferList_->mBuffers[0].mData);
-
-        // Log periodically (every ~1 second)
-        static int captureCount = 0;
-        if (++captureCount % 100 == 1) {
-            int16_t maxSample = 0;
-            for (UInt32 i = 0; i < inNumberFrames; i++) {
-                int16_t absSample = std::abs(data[i]);
-                if (absSample > maxSample) maxSample = absSample;
-            }
-            NSLog(@"[AudioEngine] Capture: frames=%u, maxSample=%d, level=%.2f%%",
-                  inNumberFrames, maxSample, (maxSample / 32768.0f) * 100.0f);
-        }
-
         engine->processCapturedAudio(data, inNumberFrames);
     } else {
         NSLog(@"[AudioEngine] ERROR: AudioUnitRender failed with status %d", (int)status);

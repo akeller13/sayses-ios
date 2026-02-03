@@ -480,6 +480,14 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
 
     // MARK: - Permission Requests
 
+    /// Request permissions for all known channels (called after SSE channel update)
+    func requestAllChannelPermissions() {
+        print("[MumbleConnection] Requesting permissions for all \(knownChannelIds.count) channels")
+        for channelId in knownChannelIds {
+            requestChannelPermissions(channelId)
+        }
+    }
+
     private func requestChannelPermissions(_ channelId: UInt32) {
         let data = MumbleMessages.buildPermissionQuery(channelId: channelId)
         tcpConnection.sendMessage(type: .permissionQuery, data: data)
