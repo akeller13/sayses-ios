@@ -1051,6 +1051,99 @@ class SemparaAPIClient {
         return hash.map { String(format: "%02x", $0) }.joined()
     }
 
+    // MARK: - Profile Image
+
+    /// Upload profile image - POST /api/mobile/profile-image (multipart)
+    /// Signature format: {certificate_hash}:{timestamp}:profile-image
+    func uploadProfileImage(subdomain: String, certificateHash: String, imageData: Data) async throws {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/mobile/profile-image") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let message = "\(certificateHash):\(timestamp):profile-image"
+        let signature = signRaw(certificateHash: certificateHash, message: message)
+
+        // Build multipart body
+        let boundary = UUID().uuidString
+        var body = Data()
+
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"profile.jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        urlRequest.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        urlRequest.setValue(signature, forHTTPHeaderField: "X-Signature")
+        urlRequest.httpBody = body
+
+        print("[API] POST /api/mobile/profile-image - uploading profile image (\(imageData.count) bytes)")
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        print("[API]   Response status: \(httpResponse.statusCode)")
+        if let responseBody = String(data: data, encoding: .utf8) {
+            print("[API]   Response body: \(responseBody)")
+        }
+
+        guard httpResponse.statusCode == 200 || httpResponse.statusCode == 201 else {
+            print("[API] uploadProfileImage failed: HTTP \(httpResponse.statusCode)")
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        print("[API] Profile image uploaded successfully")
+    }
+
+    /// Download profile image - GET /api/mobile/user/{username}/profile-image
+    /// Signature format: {certificate_hash}:{timestamp}:{username}
+    /// Returns image Data or nil if no image exists
+    func downloadProfileImage(subdomain: String, certificateHash: String, username: String) async throws -> Data? {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let encodedUsername = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "\(baseURL)/api/mobile/user/\(encodedUsername)/profile-image") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let message = "\(certificateHash):\(timestamp):\(username)"
+        let signature = signRaw(certificateHash: certificateHash, message: message)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        request.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        request.setValue(signature, forHTTPHeaderField: "X-Signature")
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        // 404 means no image - return nil
+        if httpResponse.statusCode == 404 {
+            return nil
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        return data
+    }
+
     // MARK: - Channel Image
 
     /// Get channel image by Mumble channel ID - GET /api/mobile/channel/{mumble_channel_id}/image

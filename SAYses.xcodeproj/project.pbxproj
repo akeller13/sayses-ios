@@ -78,6 +78,8 @@
 		FA9ECE6E9DE4A8723B7B14F3 /* MumbleConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5FBB42DA79FE276EB77601 /* MumbleConnection.swift */; };
 		FAF7700DCE2F97D105BC18FD /* MembersSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767F935D27512408E9F618C9 /* MembersSheet.swift */; };
 		FF9BF8C7E1B7238235111631 /* TransmissionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBC9C8454E3CB6CFCE39F1D /* TransmissionMode.swift */; };
+		PROF01A2B3C4D5E6F7890AB2 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PROF01A2B3C4D5E6F7890AB1 /* ProfileView.swift */; };
+		IMGP01A2B3C4D5E6F7890AB2 /* ImagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGP01A2B3C4D5E6F7890AB1 /* ImagePicker.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -142,6 +144,8 @@
 		7673FEA823152C68C43A86AF /* SAYsesApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SAYsesApp.swift; sourceTree = "<group>"; };
 		767F935D27512408E9F618C9 /* MembersSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MembersSheet.swift; sourceTree = "<group>"; };
 		77630C04F0DE3572C542932A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		PROF01A2B3C4D5E6F7890AB1 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		IMGP01A2B3C4D5E6F7890AB1 /* ImagePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePicker.swift; sourceTree = "<group>"; };
 		788093CD839F686FD4921A70 /* SAYsesTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SAYsesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		79FE61506BFB445E498CF55A /* Channel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Channel.swift; sourceTree = "<group>"; };
 		7BF79262DE38F5016B422AE5 /* opus_codec.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = opus_codec.cpp; path = ../../../../Core/src/codec/opus_codec.cpp; sourceTree = "<group>"; };
@@ -279,6 +283,14 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
+		PROF01A2B3C4D5E6F7890AB3 /* Profile */ = {
+			isa = PBXGroup;
+			children = (
+				PROF01A2B3C4D5E6F7890AB1 /* ProfileView.swift */,
+			);
+			path = Profile;
+			sourceTree = "<group>";
+		};
 		44E07371FDD48DDE8A64E66E /* Channel */ = {
 			isa = PBXGroup;
 			children = (
@@ -310,6 +322,7 @@
 				5D7FA405A5D7576AEDA1435D /* AlarmSoundPicker.swift */,
 				4569F2D98D0163CE9085C37E /* AlarmAlertDialog.swift */,
 				E1A2B3C4D5E6F7890ABCDEF1 /* EndAlarmAlertDialog.swift */,
+				IMGP01A2B3C4D5E6F7890AB1 /* ImagePicker.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -574,6 +587,7 @@
 				44E07371FDD48DDE8A64E66E /* Channel */,
 				103549A00CA85AD1E3042802 /* ChannelList */,
 				7DC1A61F3145304A13AB6A21 /* Login */,
+				PROF01A2B3C4D5E6F7890AB3 /* Profile */,
 				33BF9C85B5C743209FB1AC40 /* Settings */,
 				791E6BB12213AA1345EAF5AE /* AudioCast */,
 				7F21538DA9CB7B15CCD2E722 /* Dispatcher */,
@@ -789,6 +803,8 @@
 				D8A9E159109D88DDA191C061 /* AudioCastScreen.swift in Sources */,
 				A210019EF7B730BF09B64B14 /* DispatcherRequestButton.swift in Sources */,
 				4F691129296A5F5575E665FD /* DispatcherRecordingDialog.swift in Sources */,
+				PROF01A2B3C4D5E6F7890AB2 /* ProfileView.swift in Sources */,
+				IMGP01A2B3C4D5E6F7890AB2 /* ImagePicker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

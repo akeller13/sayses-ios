@@ -26,6 +26,7 @@ struct ChannelListView: View {
     @State private var showSettings = false
     @State private var showTransmissionMode = false
     @State private var showInfo = false
+    @State private var showProfile = false
     @State private var favoriteIds: Set<UInt32> = []
     @State private var navigationPath = NavigationPath()
     @State private var showOnlyFavorites = false
@@ -186,6 +187,9 @@ struct ChannelListView: View {
         }
         .sheet(isPresented: $showInfo) {
             InfoView(mumbleService: mumbleService)
+        }
+        .sheet(isPresented: $showProfile) {
+            ProfileView(mumbleService: mumbleService)
         }
         .fullScreenCover(isPresented: $showAlarmCountdown) {
             AlarmCountdownDialog(
@@ -757,15 +761,9 @@ struct ChannelListView: View {
     private var profileMenu: some View {
         Menu {
             Button {
-                showOnlyFavorites = false
+                showProfile = true
             } label: {
-                Label("Alle Kanäle", systemImage: "list.bullet")
-            }
-
-            Button {
-                showOnlyFavorites = true
-            } label: {
-                Label("Nur Favoriten", systemImage: "star")
+                Label("Profil", systemImage: "person.crop.circle")
             }
 
             Divider()
