@@ -17,6 +17,7 @@ final class BufferedPosition {
     var recordedAt: Int64
     var createdAt: Date
     var retryCount: Int
+    var isSending: Bool  // Flag to prevent duplicate sends
 
     init(sessionId: String, position: PositionData) {
         self.id = UUID()
@@ -32,6 +33,7 @@ final class BufferedPosition {
         self.recordedAt = position.recordedAt
         self.createdAt = Date()
         self.retryCount = 0
+        self.isSending = false
     }
 
     func toPositionData() -> PositionData {

@@ -220,6 +220,10 @@ class PositionTracker: ObservableObject {
         boostMode = nil
         onLocationUpdate = nil  // Clear callback when boost ends
 
+        // CRITICAL: Cancel sendTask FIRST to prevent concurrent sends with flushBuffer
+        sendTask?.cancel()
+        sendTask = nil
+
         // Cancel any previous flush task to prevent concurrent flushes
         flushTask?.cancel()
 
@@ -230,7 +234,7 @@ class PositionTracker: ObservableObject {
         // Use a tracked task so it can be cancelled if a new boost starts
         if let sessionId = previousSessionId {
             flushTask = Task {
-                await flushBuffer(sessionId: sessionId)
+                await self.flushBuffer(sessionId: sessionId)
             }
         }
 
@@ -238,6 +242,8 @@ class PositionTracker: ObservableObject {
         if baseMode == .background {
             activeSessionId = "tracking_\(certificateHash?.prefix(8) ?? "unknown")"
             updateEffectiveFrequency()
+            // Restart send loop for background mode with new session
+            startSendLoop()
             print("[PositionTracker] Returning to background mode")
         } else {
             stopTracking()
@@ -473,6 +479,9 @@ class PositionTracker: ObservableObject {
             NSLog("[PositionTracker] Send failed: %@", error.localizedDescription)
             print("[PositionTracker] Send failed: \(error)")
 
+            // Reset isSending flag so positions can be retried
+            await buffer.resetSendingFlag(buffered)
+
             await MainActor.run {
                 self.lastError = error.localizedDescription
             }
@@ -541,6 +550,8 @@ class PositionTracker: ObservableObject {
 
             } catch {
                 NSLog("[PositionTracker] flushBuffer: send failed - %@", error.localizedDescription)
+                // Reset isSending flag so positions can be retried
+                await buffer.resetSendingFlag(buffered)
                 attempts += 1
                 if attempts < 3 && !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s warten

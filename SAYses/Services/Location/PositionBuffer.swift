@@ -50,31 +50,49 @@ actor PositionBuffer {
         let context = ModelContext(container)
 
         var descriptor = FetchDescriptor<BufferedPosition>(
-            predicate: #Predicate { $0.sessionId == sessionId },
+            predicate: #Predicate { $0.sessionId == sessionId && $0.isSending == false },
             sortBy: [SortDescriptor(\.createdAt, order: .forward)]
         )
         descriptor.fetchLimit = limit
 
         do {
-            return try context.fetch(descriptor)
+            let positions = try context.fetch(descriptor)
+            // Mark as sending to prevent duplicate fetches
+            for position in positions {
+                position.isSending = true
+            }
+            try context.save()
+            return positions
         } catch {
             print("[PositionBuffer] Failed to fetch: \(error)")
             return []
         }
     }
 
-    /// Positionen nach erfolgreichem Upload löschen
+    /// Positionen nach erfolgreichem Upload löschen (by persistent ID)
     func delete(_ positions: [BufferedPosition]) async {
         guard let container = modelContainer else { return }
+        guard !positions.isEmpty else { return }
+
+        // Get the persistent identifiers from the positions
+        let idsToDelete = positions.map { $0.persistentModelID }
 
         let context = ModelContext(container)
-        for position in positions {
-            context.delete(position)
-        }
+
+        // Fetch the SAME objects in THIS context by their IDs and delete them
+        let descriptor = FetchDescriptor<BufferedPosition>()
 
         do {
+            let allPositions = try context.fetch(descriptor)
+            var deletedCount = 0
+            for position in allPositions {
+                if idsToDelete.contains(position.persistentModelID) {
+                    context.delete(position)
+                    deletedCount += 1
+                }
+            }
             try context.save()
-            print("[PositionBuffer] Deleted \(positions.count) positions")
+            print("[PositionBuffer] Deleted \(deletedCount) positions by ID")
         } catch {
             print("[PositionBuffer] Failed to delete: \(error)")
         }
@@ -91,6 +109,31 @@ actor PositionBuffer {
             try context.save()
         } catch {
             print("[PositionBuffer] Failed to increment retry: \(error)")
+        }
+    }
+
+    /// Reset isSending flag for failed positions (allow retry)
+    func resetSendingFlag(_ positions: [BufferedPosition]) async {
+        guard let container = modelContainer else { return }
+        guard !positions.isEmpty else { return }
+
+        let idsToReset = positions.map { $0.persistentModelID }
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<BufferedPosition>()
+
+        do {
+            let allPositions = try context.fetch(descriptor)
+            var resetCount = 0
+            for position in allPositions {
+                if idsToReset.contains(position.persistentModelID) {
+                    position.isSending = false
+                    resetCount += 1
+                }
+            }
+            try context.save()
+            print("[PositionBuffer] Reset isSending flag for \(resetCount) positions")
+        } catch {
+            print("[PositionBuffer] Failed to reset sending flag: \(error)")
         }
     }
 
