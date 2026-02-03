@@ -9,19 +9,40 @@ actor PositionBuffer {
 
     private init() {
         do {
-            // Use a SEPARATE database file to avoid conflicts with main app's AlarmEntity database
-            let schema = Schema([BufferedPosition.self])
-            let config = ModelConfiguration(
-                "PositionBuffer",
-                schema: schema,
-                isStoredInMemoryOnly: false,
-                allowsSave: true
-            )
-            modelContainer = try ModelContainer(for: schema, configurations: [config])
+            modelContainer = try Self.createContainer()
             print("[PositionBuffer] Initialized successfully with separate database")
         } catch {
-            print("[PositionBuffer] Failed to create container: \(error)")
+            print("[PositionBuffer] Failed to create container, deleting old store and retrying: \(error)")
+            Self.deleteStoreFiles()
+            do {
+                modelContainer = try Self.createContainer()
+                print("[PositionBuffer] Recreated container after deleting old store")
+            } catch {
+                print("[PositionBuffer] Failed to recreate container: \(error)")
+            }
         }
+    }
+
+    private static func createContainer() throws -> ModelContainer {
+        let schema = Schema([BufferedPosition.self])
+        let config = ModelConfiguration(
+            "PositionBuffer",
+            schema: schema,
+            isStoredInMemoryOnly: false,
+            allowsSave: true
+        )
+        return try ModelContainer(for: schema, configurations: [config])
+    }
+
+    private static func deleteStoreFiles() {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let storeBase = appSupport.appendingPathComponent("PositionBuffer.store")
+        for suffix in ["", "-shm", "-wal"] {
+            let url = storeBase.appendingPathExtension(suffix.isEmpty ? "" : String(suffix.dropFirst()))
+            let fileURL = suffix.isEmpty ? storeBase : URL(fileURLWithPath: storeBase.path + suffix)
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        print("[PositionBuffer] Deleted old store files")
     }
 
     /// Position in Buffer speichern

@@ -302,6 +302,12 @@ struct ChannelListView: View {
                 navigationPath = NavigationPath()
             }
         }
+        // Switch to dispatcher tab when triggered from ChannelView
+        .onChange(of: mumbleService.switchToDispatcherTab) { _, newValue in
+            guard newValue else { return }
+            selectedTab = .dispatcher
+            mumbleService.switchToDispatcherTab = false
+        }
         // Blink animation for ALARM text
         .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
             if !mumbleService.openAlarms.isEmpty {

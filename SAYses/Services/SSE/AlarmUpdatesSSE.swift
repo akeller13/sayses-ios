@@ -17,7 +17,7 @@ protocol AlarmUpdatesSSEDelegate: AnyObject {
 }
 
 /// SSE client for receiving real-time alarm updates from the backend
-class AlarmUpdatesSSE: NSObject {
+class AlarmUpdatesSSE {
 
     // MARK: - Properties
 
@@ -25,21 +25,24 @@ class AlarmUpdatesSSE: NSObject {
 
     private let subdomain: String
     private let certificateHash: String
-    private var session: URLSession?
-    private var dataTask: URLSessionDataTask?
+    private let sseSession: URLSession
+    private var streamTask: Task<Void, Never>?
     private var isRunning = false
     private var reconnectAttempts = 0
-    private let maxReconnectAttempts = 5  // More attempts for critical alarms
+    private let maxReconnectAttempts = 5
     private let reconnectDelay: TimeInterval = 3.0
-
-    private var dataBuffer = Data()
 
     // MARK: - Initialization
 
     init(subdomain: String, certificateHash: String) {
         self.subdomain = subdomain
         self.certificateHash = certificateHash
-        super.init()
+
+        // SSE session with long timeouts for streaming connections
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300   // 5 minutes between data
+        config.timeoutIntervalForResource = 86400  // 24 hours max
+        self.sseSession = URLSession(configuration: config)
     }
 
     // MARK: - Public Methods
@@ -60,11 +63,8 @@ class AlarmUpdatesSSE: NSObject {
     func stop() {
         print("[AlarmUpdatesSSE] Stopping...")
         isRunning = false
-        dataTask?.cancel()
-        dataTask = nil
-        session?.invalidateAndCancel()
-        session = nil
-        dataBuffer.removeAll()
+        streamTask?.cancel()
+        streamTask = nil
         Task { @MainActor [weak self] in
             self?.delegate?.alarmSSEConnectionStateChanged(isConnected: false)
         }
@@ -92,16 +92,58 @@ class AlarmUpdatesSSE: NSObject {
         request.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
         request.setValue(timestamp, forHTTPHeaderField: "X-Timestamp")
         request.setValue(signature, forHTTPHeaderField: "X-Signature")
-        request.timeoutInterval = 300 // 5 minutes
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
 
-        // Create session with delegate
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300
-        config.timeoutIntervalForResource = 600
-        session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        streamTask = Task { [weak self] in
+            guard let self = self else { return }
 
-        dataTask = session?.dataTask(with: request)
-        dataTask?.resume()
+            do {
+                let (bytes, response) = try await self.sseSession.bytes(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("[AlarmUpdatesSSE] Invalid response")
+                    self.handleReconnect()
+                    return
+                }
+
+                guard httpResponse.statusCode == 200 else {
+                    print("[AlarmUpdatesSSE] Authentication failed: \(httpResponse.statusCode)")
+                    self.handleReconnect()
+                    return
+                }
+
+                print("[AlarmUpdatesSSE] Connected successfully")
+                self.reconnectAttempts = 0
+                await MainActor.run {
+                    self.delegate?.alarmSSEConnectionStateChanged(isConnected: true)
+                }
+
+                for try await line in bytes.lines {
+                    if Task.isCancelled { break }
+                    self.processLine(line)
+                }
+
+                // Stream ended naturally
+                print("[AlarmUpdatesSSE] Stream ended")
+                if self.isRunning {
+                    await MainActor.run {
+                        self.delegate?.alarmSSEConnectionStateChanged(isConnected: false)
+                    }
+                    self.handleReconnect()
+                }
+
+            } catch {
+                if Task.isCancelled {
+                    print("[AlarmUpdatesSSE] Connection cancelled")
+                } else {
+                    print("[AlarmUpdatesSSE] Connection error: \(error.localizedDescription)")
+                    await MainActor.run {
+                        self.delegate?.alarmSSEConnectionStateChanged(isConnected: false)
+                    }
+                    self.handleReconnect()
+                }
+            }
+        }
     }
 
     private func generateHmacSignature(timestamp: String) -> String {
@@ -120,7 +162,8 @@ class AlarmUpdatesSSE: NSObject {
         if reconnectAttempts <= maxReconnectAttempts {
             print("[AlarmUpdatesSSE] Reconnecting in \(reconnectDelay)s (attempt \(reconnectAttempts)/\(maxReconnectAttempts))...")
 
-            DispatchQueue.global().asyncAfter(deadline: .now() + reconnectDelay) { [weak self] in
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(self?.reconnectDelay ?? 3.0) * 1_000_000_000)
                 self?.connect()
             }
         } else {
@@ -132,43 +175,13 @@ class AlarmUpdatesSSE: NSObject {
         }
     }
 
-    private func processSSEData(_ data: Data) {
-        dataBuffer.append(data)
-
-        // Process complete lines from buffer
-        guard let text = String(data: dataBuffer, encoding: .utf8) else { return }
-
-        let lines = text.components(separatedBy: "\n")
-
-        // Keep incomplete last line in buffer
-        var processedBytes = 0
-        for (index, line) in lines.enumerated() {
-            if index == lines.count - 1 && !text.hasSuffix("\n") {
-                // Last line is incomplete, keep it in buffer
-                break
-            }
-
-            processedBytes += line.utf8.count + 1 // +1 for newline
-            processLine(line)
-        }
-
-        // Remove processed data from buffer
-        if processedBytes > 0 && processedBytes <= dataBuffer.count {
-            dataBuffer.removeFirst(processedBytes)
-        }
-    }
-
     private func processLine(_ line: String) {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
 
         // Skip empty lines and comments
         if trimmed.isEmpty || trimmed.hasPrefix(":") {
             if trimmed.hasPrefix(": connected") {
-                print("[AlarmUpdatesSSE] Connected successfully")
-                reconnectAttempts = 0
-                Task { @MainActor [weak self] in
-                    self?.delegate?.alarmSSEConnectionStateChanged(isConnected: true)
-                }
+                print("[AlarmUpdatesSSE] Server confirmed connection")
             } else if trimmed.hasPrefix(": heartbeat") {
                 // Heartbeat received, connection is alive
             }
@@ -214,52 +227,6 @@ class AlarmUpdatesSSE: NSObject {
             }
         } catch {
             print("[AlarmUpdatesSSE] Failed to decode alarm event: \(error)")
-        }
-    }
-}
-
-// MARK: - URLSessionDataDelegate
-
-extension AlarmUpdatesSSE: URLSessionDataDelegate {
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        if let httpResponse = response as? HTTPURLResponse {
-            print("[AlarmUpdatesSSE] Received response: \(httpResponse.statusCode)")
-
-            if httpResponse.statusCode == 200 {
-                completionHandler(.allow)
-            } else {
-                print("[AlarmUpdatesSSE] Authentication failed: \(httpResponse.statusCode)")
-                completionHandler(.cancel)
-                handleReconnect()
-            }
-        } else {
-            completionHandler(.allow)
-        }
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        processSSEData(data)
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error = error {
-            let nsError = error as NSError
-            if nsError.code == NSURLErrorCancelled {
-                print("[AlarmUpdatesSSE] Connection cancelled")
-            } else {
-                print("[AlarmUpdatesSSE] Connection error: \(error.localizedDescription)")
-                handleReconnect()
-            }
-        } else {
-            print("[AlarmUpdatesSSE] Connection completed")
-            if isRunning {
-                handleReconnect()
-            }
-        }
-
-        Task { @MainActor [weak self] in
-            self?.delegate?.alarmSSEConnectionStateChanged(isConnected: false)
         }
     }
 }

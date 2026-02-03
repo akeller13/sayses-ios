@@ -33,6 +33,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     /// Published when user should navigate back to channel list
     @Published var navigateBackToList: Bool = false
 
+    /// Published when user should switch to dispatcher tab after navigating back
+    @Published var switchToDispatcherTab: Bool = false
+
     /// Audio input level (0.0 - 1.0) for UI feedback
     @Published private(set) var audioInputLevel: Float = 0
 

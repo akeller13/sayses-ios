@@ -275,6 +275,19 @@ struct ChannelView: View {
                 }
             }
 
+            // Dispatcher button (only shown if user has permission)
+            // Navigates back to channel list and switches to dispatcher tab
+            if mumbleService.userPermissions.canCallDispatcher {
+                Button(action: {
+                    mumbleService.switchToDispatcherTab = true
+                    viewModel.leaveChannel()
+                    dismiss()
+                }) {
+                    Image(systemName: "person.wave.2")
+                        .font(.title)
+                }
+            }
+
             Spacer()
         }
         .padding(.horizontal)

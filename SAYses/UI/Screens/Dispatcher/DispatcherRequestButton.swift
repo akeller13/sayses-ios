@@ -14,10 +14,13 @@ struct DispatcherRequestButton: View {
     /// The dispatcher alias to display
     let dispatcherAlias: String
 
-    @State private var isPressed = false
+    // @GestureState auto-resets to false when the gesture ends OR is cancelled
+    // (e.g., when a fullScreenCover appears and cancels the gesture).
+    // This avoids the stuck-state problem that @State had.
+    @GestureState private var isFingerDown = false
     @State private var holdProgress: CGFloat = 0
     @State private var holdTask: Task<Void, Never>?
-    @State private var didComplete = false  // Prevents multiple onHoldComplete calls
+    @State private var didComplete = false
 
     // Orange color from Android: sayses_secondary_dark = #F57C00
     private let orangeColor = Color(red: 0xF5/255.0, green: 0x7C/255.0, blue: 0x00/255.0)
@@ -44,7 +47,7 @@ struct DispatcherRequestButton: View {
             ZStack {
                 // Background
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(isPressed ? orangeDarkColor : orangeColor)
+                    .fill(isFingerDown ? orangeDarkColor : orangeColor)
                     .frame(width: buttonSize, height: buttonSize)
 
                 // Progress ring (visible when holding)
@@ -59,35 +62,43 @@ struct DispatcherRequestButton: View {
                 VStack(spacing: 4) {
                     Text("Meldung an")
                     Text(dispatcherAlias)
-                    Text("senden.")
+                    Text("senden")
                 }
                 .font(.title2)
                 .fontWeight(.semibold)
                 .foregroundStyle(.white)
+                .offset(y: -10)
+
+                Text("Button für 1 Sekunde drücken")
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: buttonSize, alignment: .bottom)
+                    .padding(.bottom, 12)
             }
             .frame(maxWidth: .infinity)
-            .shadow(color: isPressed ? orangeColor.opacity(0.5) : .clear, radius: 10)
+            .shadow(color: isFingerDown ? orangeColor.opacity(0.5) : .clear, radius: 10)
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        guard !isPressed else { return }
-                        isPressed = true
-                        startHold()
-                    }
-                    .onEnded { _ in
-                        isPressed = false
-                        cancelHold()
+                    .updating($isFingerDown) { _, state, _ in
+                        state = true
                     }
             )
-            .sensoryFeedback(.impact(weight: .medium), trigger: isPressed)
+            .onChange(of: isFingerDown) { oldValue, newValue in
+                if newValue && !oldValue {
+                    // Finger touched down - new gesture started
+                    didComplete = false
+                    startHold()
+                } else if !newValue && oldValue {
+                    // Finger lifted or gesture cancelled (e.g., fullScreenCover appeared)
+                    cancelHold()
+                }
+            }
+            .sensoryFeedback(.impact(weight: .medium), trigger: isFingerDown)
         }
         .frame(height: UIScreen.main.bounds.width * 0.75 + 16)
     }
 
     private func startHold() {
-        // Prevent re-triggering if already completed (user still holding finger)
-        guard !didComplete else { return }
-
         holdProgress = 0
         onHoldStart()
 
@@ -108,10 +119,9 @@ struct DispatcherRequestButton: View {
                         let generator = UINotificationFeedbackGenerator()
                         generator.notificationOccurred(.success)
 
-                        didComplete = true  // Prevent re-triggering while finger still down
-                        onHoldComplete()
+                        didComplete = true
                         holdProgress = 0
-                        isPressed = false
+                        onHoldComplete()
                     }
                     break
                 }
@@ -126,16 +136,13 @@ struct DispatcherRequestButton: View {
         holdTask = nil
 
         // Only call cancel if we didn't complete
-        if holdProgress < 1.0 && !didComplete {
+        if !didComplete {
             onHoldCancel()
         }
 
         withAnimation(.easeOut(duration: 0.2)) {
             holdProgress = 0
         }
-
-        // Reset didComplete for next button press
-        didComplete = false
     }
 }
 

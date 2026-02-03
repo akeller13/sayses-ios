@@ -217,7 +217,7 @@ struct AudioCastListItem: View {
                     Text(audioCast.title)
                         .font(.body)
                         .foregroundStyle(isCurrentlyPlaying ? Color.accentColor : .primary)
-                        .lineLimit(1)
+                        .lineLimit(2)
 
                     Text(audioCast.formattedDuration)
                         .font(.caption)
