@@ -1144,6 +1144,43 @@ class SemparaAPIClient {
         return data
     }
 
+    // MARK: - Channel Members
+
+    /// Get list of allowed members for a channel - GET /api/mobile/channel/{mumble_channel_id}/members
+    /// Signature format: {certificate_hash}:{timestamp}:{mumble_channel_id}
+    func fetchChannelMembers(subdomain: String, certificateHash: String, mumbleChannelId: UInt32) async throws -> [ChannelMember] {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/mobile/channel/\(mumbleChannelId)/members") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let message = "\(certificateHash):\(timestamp):\(mumbleChannelId)"
+        let signature = signRaw(certificateHash: certificateHash, message: message)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        request.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        request.setValue(signature, forHTTPHeaderField: "X-Signature")
+
+        print("[API] GET /api/mobile/channel/\(mumbleChannelId)/members")
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            print("[API] fetchChannelMembers failed: HTTP \(httpResponse.statusCode)")
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        let decoder = JSONDecoder()
+        return try decoder.decode([ChannelMember].self, from: data)
+    }
+
     // MARK: - Channel Image
 
     /// Get channel image by Mumble channel ID - GET /api/mobile/channel/{mumble_channel_id}/image

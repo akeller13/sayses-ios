@@ -7,6 +7,7 @@ import SwiftUI
 class ChannelViewModel {
     let channel: Channel
     private let mumbleService: MumbleService
+    private let apiClient = SemparaAPIClient()
     private var cancellables = Set<AnyCancellable>()
     private var blePttManager: BlePttButtonManager?
 
@@ -17,6 +18,8 @@ class ChannelViewModel {
     var canSpeak = true
     var canTriggerAlarm = true
     var members: [User] = []
+    var channelMembers: [ChannelMember] = []
+    var memberProfileImages: [String: UIImage] = [:]
     var connectedBluetoothDevice: String?
 
     // Read transmission mode from AppStorage
@@ -133,6 +136,60 @@ class ChannelViewModel {
 
         // Start BLE PTT scanning only when actually in a channel
         setupBlePtt()
+
+        // Load channel members from backend (non-blocking)
+        await loadChannelMembers()
+    }
+
+    private func loadChannelMembers() async {
+        guard let subdomain = mumbleService.tenantSubdomain,
+              let certificateHash = mumbleService.credentials?.certificateHash else {
+            print("[ChannelViewModel] Cannot load channel members: missing credentials")
+            return
+        }
+
+        do {
+            let members = try await apiClient.fetchChannelMembers(
+                subdomain: subdomain,
+                certificateHash: certificateHash,
+                mumbleChannelId: channel.id
+            )
+            self.channelMembers = members
+            print("[ChannelViewModel] Loaded \(members.count) channel members from backend")
+
+            // Load profile images for members that have one
+            await loadMemberProfileImages(members: members, subdomain: subdomain, certificateHash: certificateHash)
+        } catch {
+            print("[ChannelViewModel] Failed to load channel members: \(error)")
+        }
+    }
+
+    private func loadMemberProfileImages(members: [ChannelMember], subdomain: String, certificateHash: String) async {
+        await withTaskGroup(of: (String, UIImage?).self) { group in
+            for member in members where member.hasProfileImage {
+                group.addTask { [apiClient] in
+                    do {
+                        if let data = try await apiClient.downloadProfileImage(
+                            subdomain: subdomain,
+                            certificateHash: certificateHash,
+                            username: member.username
+                        ), let image = UIImage(data: data) {
+                            return (member.username, image)
+                        }
+                    } catch {
+                        print("[ChannelViewModel] Failed to load profile image for \(member.username): \(error)")
+                    }
+                    return (member.username, nil)
+                }
+            }
+
+            for await (username, image) in group {
+                if let image = image {
+                    self.memberProfileImages[username] = image
+                }
+            }
+        }
+        print("[ChannelViewModel] Loaded \(memberProfileImages.count) profile images")
     }
 
     func leaveChannel() {

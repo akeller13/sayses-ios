@@ -124,7 +124,12 @@ struct ChannelView: View {
             }
         }
         .sheet(isPresented: $showMembers) {
-            MembersSheet(channel: channel, members: viewModel.members)
+            MembersSheet(
+                channel: channel,
+                members: viewModel.members,
+                channelMembers: viewModel.channelMembers,
+                memberProfileImages: viewModel.memberProfileImages
+            )
         }
         .sheet(isPresented: $showTransmissionMode) {
             TransmissionModeSheet()
