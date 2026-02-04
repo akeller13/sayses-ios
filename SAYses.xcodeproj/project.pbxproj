@@ -80,6 +80,7 @@
 		FF9BF8C7E1B7238235111631 /* TransmissionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBC9C8454E3CB6CFCE39F1D /* TransmissionMode.swift */; };
 		PROF01A2B3C4D5E6F7890AB2 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PROF01A2B3C4D5E6F7890AB1 /* ProfileView.swift */; };
 		IMGP01A2B3C4D5E6F7890AB2 /* ImagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGP01A2B3C4D5E6F7890AB1 /* ImagePicker.swift */; };
+		BLE001002003004005006CC /* BlePttButtonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BLE001002003004005006BB /* BlePttButtonManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -182,6 +183,7 @@
 		FB9EE182026B9600FED0969C /* WorkspaceLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLookup.swift; sourceTree = "<group>"; };
 		FDAB89DE09DDA69BB4B890A5 /* OfflineStatusBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineStatusBanner.swift; sourceTree = "<group>"; };
 		FF205812D9FDA95528503CAA /* KeycloakAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeycloakAuthService.swift; sourceTree = "<group>"; };
+		BLE001002003004005006BB /* BlePttButtonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlePttButtonManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -422,6 +424,7 @@
 				A5DAA529D8D15A78DF26B7DF /* API */,
 				9CD40C32ED4CEEE1535B318B /* Audio */,
 				79934C87C881036C5659CB39 /* Auth */,
+				BLE001002003004005006AA /* Bluetooth */,
 				CACHE001002003004005006AA /* Cache */,
 				C7CF8EA23698776FA7116491 /* Location */,
 				880148C05C80CAFBA0BFD8E4 /* Mumble */,
@@ -429,6 +432,14 @@
 				SSE001002003004005006AA /* SSE */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		BLE001002003004005006AA /* Bluetooth */ = {
+			isa = PBXGroup;
+			children = (
+				BLE001002003004005006BB /* BlePttButtonManager.swift */,
+			);
+			path = Bluetooth;
 			sourceTree = "<group>";
 		};
 		SSE001002003004005006AA /* SSE */ = {
@@ -805,6 +816,7 @@
 				4F691129296A5F5575E665FD /* DispatcherRecordingDialog.swift in Sources */,
 				PROF01A2B3C4D5E6F7890AB2 /* ProfileView.swift in Sources */,
 				IMGP01A2B3C4D5E6F7890AB2 /* ImagePicker.swift in Sources */,
+				BLE001002003004005006CC /* BlePttButtonManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -32,6 +32,7 @@
         <string>audio</string>
         <string>voip</string>
         <string>location</string>
+        <string>bluetooth-central</string>
     </array>
     <key>UILaunchScreen</key>
     <dict>
@@ -58,6 +59,8 @@
     </array>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>SAYses benötigt Zugriff auf Ihre Fotos, um ein Profilbild auszuwählen.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>SAYses benötigt Bluetooth für PTT-Knöpfe.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>SAYses benötigt Zugriff auf das Mikrofon für Sprachkommunikation.</string>
     <key>NSLocationWhenInUseUsageDescription</key>

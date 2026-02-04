@@ -55,6 +55,10 @@ struct ChannelListView: View {
     }
 
     var body: some View {
+        // Ghost kick: show full-screen message without navigation chrome
+        if mumbleService.ghostKickMessage != nil {
+            ghostKickView
+        } else {
         ZStack(alignment: .bottom) {
             NavigationStack(path: $navigationPath) {
                 Group {
@@ -354,6 +358,45 @@ struct ChannelListView: View {
                 .padding(.top, 0)
             }
         }
+        } // else (not ghost kick)
+    }
+
+    // MARK: - Ghost Kick View
+
+    private var ghostKickView: some View {
+        VStack(spacing: 30) {
+            Spacer()
+
+            Image("LaunchLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 120, height: 120)
+
+            VStack(spacing: 12) {
+                Image(systemName: "iphone.and.arrow.forward")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.blue)
+
+                Text("Anderes Gerät angemeldet")
+                    .font(.headline)
+
+                if let message = mumbleService.ghostKickMessage {
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+            }
+
+            Button("Erneut anmelden") {
+                mumbleService.disconnect()
+                authViewModel.logout()
+            }
+            .buttonStyle(.borderedProminent)
+
+            Spacer()
+        }
     }
 
     // MARK: - Alarm Helpers
@@ -438,56 +481,34 @@ struct ChannelListView: View {
 
     private var errorView: some View {
         VStack(spacing: 20) {
-            if let ghostMessage = mumbleService.ghostKickMessage {
-                Image(systemName: "iphone.and.arrow.forward")
-                    .font(.system(size: 50))
-                    .foregroundStyle(.blue)
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 50))
+                .foregroundStyle(.orange)
 
-                Text("Anderes Gerät angemeldet")
-                    .font(.headline)
+            Text("Verbindung fehlgeschlagen")
+                .font(.headline)
 
-                Text(ghostMessage)
+            if let error = mumbleService.errorMessage {
+                Text(error)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
-
-                Button("Erneut verbinden") {
-                    Task {
-                        await mumbleService.reconnect()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-            } else {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 50))
-                    .foregroundStyle(.orange)
-
-                Text("Verbindung fehlgeschlagen")
-                    .font(.headline)
-
-                if let error = mumbleService.errorMessage {
-                    Text(error)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-
-                // Debug info
-                let hasSubdomain = UserDefaults.standard.string(forKey: "subdomain") != nil
-                let hasCreds = CredentialsStore.shared.getStoredCredentials() != nil
-                Text("Debug: subdomain=\(hasSubdomain), creds=\(hasCreds)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-
-                Button("Erneut versuchen") {
-                    Task {
-                        await mumbleService.reconnect()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
             }
+
+            // Debug info
+            let hasSubdomain = UserDefaults.standard.string(forKey: "subdomain") != nil
+            let hasCreds = CredentialsStore.shared.getStoredCredentials() != nil
+            Text("Debug: subdomain=\(hasSubdomain), creds=\(hasCreds)")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
+            Button("Erneut versuchen") {
+                Task {
+                    await mumbleService.reconnect()
+                }
+            }
+            .buttonStyle(.borderedProminent)
         }
     }
 

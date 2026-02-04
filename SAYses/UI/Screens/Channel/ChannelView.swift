@@ -31,13 +31,13 @@ struct ChannelView: View {
                 // Channel header
                 channelHeader
 
+                // Speaker mute toggle
+                muteToggle
+
                 // Bluetooth device indicator (if connected)
                 if let deviceName = viewModel.connectedBluetoothDevice {
                     bluetoothIndicator(deviceName: deviceName)
                 }
-
-                // Speaker mute toggle
-                muteToggle
 
                 // PTT Button or Listen-Only indicator - centered in remaining space
                 Spacer()
@@ -241,12 +241,14 @@ struct ChannelView: View {
     }
 
     private func bluetoothIndicator(deviceName: String) -> some View {
-        HStack {
-            Image(systemName: "bluetooth")
-                .foregroundStyle(.blue)
+        HStack(spacing: 4) {
+            BluetoothIcon()
+                .stroke(.blue, lineWidth: 1.5)
+                .frame(width: 10, height: 12)
             Text(deviceName)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.caption)
+                .foregroundStyle(.blue)
+            Spacer()
         }
         .padding(.horizontal)
         .padding(.vertical, 4)
@@ -309,6 +311,41 @@ struct ChannelView: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+// MARK: - Bluetooth Icon (official Bluetooth rune symbol)
+
+private struct BluetoothIcon: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width
+        let h = rect.height
+        let cx = rect.midX
+        let top = rect.minY
+        let bot = rect.maxY
+        let mid = rect.midY
+        let right = rect.maxX
+        let left = rect.minX
+
+        var path = Path()
+        // Vertical line
+        path.move(to: CGPoint(x: cx, y: top))
+        path.addLine(to: CGPoint(x: cx, y: bot))
+        // Upper right chevron: center → top-right → mid
+        path.move(to: CGPoint(x: cx, y: mid))
+        path.addLine(to: CGPoint(x: right, y: top + h * 0.25))
+        path.addLine(to: CGPoint(x: cx, y: top))
+        // Lower right chevron: center → bottom-right → mid-bottom
+        path.move(to: CGPoint(x: cx, y: mid))
+        path.addLine(to: CGPoint(x: right, y: bot - h * 0.25))
+        path.addLine(to: CGPoint(x: cx, y: bot))
+        // Left extensions
+        path.move(to: CGPoint(x: left, y: top + h * 0.25))
+        path.addLine(to: CGPoint(x: cx, y: mid))
+        path.move(to: CGPoint(x: left, y: bot - h * 0.25))
+        path.addLine(to: CGPoint(x: cx, y: mid))
+
+        return path
     }
 }
 

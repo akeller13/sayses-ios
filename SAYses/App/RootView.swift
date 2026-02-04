@@ -17,7 +17,9 @@ struct RootView: View {
             }
         }
         .task {
+            NSLog("[RootView] .task started - calling checkAuthentication")
             await authViewModel.checkAuthentication()
+            NSLog("[RootView] .task finished - checkAuthentication returned")
         }
         .onChange(of: authViewModel.isAuthenticated) { oldValue, newValue in
             print("[RootView] isAuthenticated changed: \(oldValue) -> \(newValue)")

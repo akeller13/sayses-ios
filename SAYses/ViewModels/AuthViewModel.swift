@@ -17,21 +17,23 @@ class AuthViewModel {
     private let apiClient = SemparaAPIClient()
 
     func checkAuthentication() async {
+        let startTime = CFAbsoluteTimeGetCurrent()
+
         // Don't check if already authenticated
         if isAuthenticated {
-            print("[AuthViewModel] checkAuthentication: already authenticated, skipping")
+            NSLog("[AuthViewModel] checkAuthentication: already authenticated, skipping (%.0fms)", (CFAbsoluteTimeGetCurrent() - startTime) * 1000)
             isCheckingAuth = false
             return
         }
 
         // Don't check if login is in progress
         if isLoginInProgress {
-            print("[AuthViewModel] checkAuthentication: login in progress, skipping")
+            NSLog("[AuthViewModel] checkAuthentication: login in progress, skipping (%.0fms)", (CFAbsoluteTimeGetCurrent() - startTime) * 1000)
             isCheckingAuth = false
             return
         }
 
-        print("[AuthViewModel] checkAuthentication: starting...")
+        NSLog("[AuthViewModel] checkAuthentication: starting...")
         isCheckingAuth = true
 
         // Load last email from storage
@@ -42,31 +44,32 @@ class AuthViewModel {
         let hasSubdomain = UserDefaults.standard.string(forKey: "subdomain") != nil
         let hasCredentials = CredentialsStore.shared.hasValidCredentials()
 
-        print("[AuthViewModel] checkAuthentication: hasSubdomain=\(hasSubdomain), hasCredentials=\(hasCredentials)")
+        NSLog("[AuthViewModel] checkAuthentication: hasSubdomain=%@, hasCredentials=%@ (%.0fms)", "\(hasSubdomain)", "\(hasCredentials)", (CFAbsoluteTimeGetCurrent() - startTime) * 1000)
 
         if hasCredentials && hasSubdomain {
-            print("[AuthViewModel] checkAuthentication: valid stored credentials found - authenticated!")
+            NSLog("[AuthViewModel] checkAuthentication: valid stored credentials found - authenticated! (%.0fms)", (CFAbsoluteTimeGetCurrent() - startTime) * 1000)
             isAuthenticated = true
             isCheckingAuth = false
             return
         } else if hasCredentials && !hasSubdomain {
-            print("[AuthViewModel] checkAuthentication: credentials exist but NO subdomain stored!")
+            NSLog("[AuthViewModel] checkAuthentication: credentials exist but NO subdomain stored!")
         }
 
         // STEP 2: No valid credentials - try auto-login with stored Keycloak tokens
+        NSLog("[AuthViewModel] checkAuthentication: starting Keycloak tryAutoLogin... (%.0fms)", (CFAbsoluteTimeGetCurrent() - startTime) * 1000)
         do {
             if try await keycloakService.tryAutoLogin() {
-                print("[AuthViewModel] checkAuthentication: Keycloak auto-login successful")
+                NSLog("[AuthViewModel] checkAuthentication: Keycloak auto-login successful (%.0fms)", (CFAbsoluteTimeGetCurrent() - startTime) * 1000)
                 isAuthenticated = true
             } else {
-                print("[AuthViewModel] checkAuthentication: no stored tokens or auto-login returned false")
+                NSLog("[AuthViewModel] checkAuthentication: no stored tokens or auto-login returned false (%.0fms)", (CFAbsoluteTimeGetCurrent() - startTime) * 1000)
             }
         } catch {
-            print("[AuthViewModel] checkAuthentication: auto-login failed: \(error)")
+            NSLog("[AuthViewModel] checkAuthentication: auto-login failed: %@ (%.0fms)", "\(error)", (CFAbsoluteTimeGetCurrent() - startTime) * 1000)
         }
 
         isCheckingAuth = false
-        print("[AuthViewModel] checkAuthentication: finished, isAuthenticated=\(isAuthenticated)")
+        NSLog("[AuthViewModel] checkAuthentication: finished, isAuthenticated=%@ (%.0fms total)", "\(isAuthenticated)", (CFAbsoluteTimeGetCurrent() - startTime) * 1000)
     }
 
     func lookupAndLogin(emailOrUsername: String) async {

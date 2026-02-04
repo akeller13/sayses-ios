@@ -9,6 +9,9 @@ struct SAYsesApp: App {
     let sharedModelContainer: ModelContainer
 
     init() {
+        let appStartTime = CFAbsoluteTimeGetCurrent()
+        NSLog("[SAYsesApp] init() starting...")
+
         let schema = Schema([
             AlarmEntity.self
         ])
@@ -48,7 +51,7 @@ struct SAYsesApp: App {
         do {
             let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
             self.sharedModelContainer = container
-            print("[SAYsesApp] ModelContainer created successfully")
+            NSLog("[SAYsesApp] ModelContainer created successfully (%.0fms)", (CFAbsoluteTimeGetCurrent() - appStartTime) * 1000)
             // Initialize shared AlarmRepository with the container
             let repo = AlarmRepository.shared(container: container)
             print("[SAYsesApp] AlarmRepository initialized: \(repo)")

@@ -8,6 +8,7 @@ class ChannelViewModel {
     let channel: Channel
     private let mumbleService: MumbleService
     private var cancellables = Set<AnyCancellable>()
+    private var blePttManager: BlePttButtonManager?
 
     var isTransmitting = false
     var audioLevel: Float = 0
@@ -59,6 +60,39 @@ class ChannelViewModel {
             .store(in: &cancellables)
     }
 
+    private func setupBlePtt() {
+        guard blePttManager == nil else { return }
+
+        let manager = BlePttButtonManager()
+        blePttManager = manager
+
+        manager.onPttPressed = { [weak self] in
+            DispatchQueue.main.async {
+                self?.startTransmitting()
+            }
+        }
+        manager.onPttReleased = { [weak self] in
+            DispatchQueue.main.async {
+                self?.stopTransmitting()
+            }
+        }
+        manager.onDoubleClick = { [weak self] in
+            DispatchQueue.main.async {
+                self?.toggleTransmissionMode()
+            }
+        }
+
+        // Observe connected device name
+        manager.$connectedDeviceName
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] name in
+                self?.connectedBluetoothDevice = name
+            }
+            .store(in: &cancellables)
+
+        manager.initialize()
+    }
+
     private func observeVoiceDetection() {
         // For VAD mode: observe voice detection
         mumbleService.$isVoiceDetected
@@ -96,10 +130,14 @@ class ChannelViewModel {
             isTransmitting = true
             mumbleService.startTransmitting()
         }
+
+        // Start BLE PTT scanning only when actually in a channel
+        setupBlePtt()
     }
 
     func leaveChannel() {
         stopTransmittingForce()
+        blePttManager?.release()
         // Leave channel and return to tenant channel
         mumbleService.leaveChannel()
     }
