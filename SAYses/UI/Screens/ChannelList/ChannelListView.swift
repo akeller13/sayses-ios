@@ -27,6 +27,7 @@ struct ChannelListView: View {
     @State private var showTransmissionMode = false
     @State private var showInfo = false
     @State private var showProfile = false
+    @State private var profileImage: UIImage?
     @State private var favoriteIds: Set<UInt32> = []
     @State private var navigationPath = NavigationPath()
     @State private var showOnlyFavorites = false
@@ -188,7 +189,7 @@ struct ChannelListView: View {
         .sheet(isPresented: $showInfo) {
             InfoView(mumbleService: mumbleService)
         }
-        .sheet(isPresented: $showProfile) {
+        .sheet(isPresented: $showProfile, onDismiss: { loadProfileImage() }) {
             ProfileView(mumbleService: mumbleService)
         }
         .fullScreenCover(isPresented: $showAlarmCountdown) {
@@ -253,6 +254,7 @@ struct ChannelListView: View {
         .task {
             loadFavorites()
             await mumbleService.connectWithStoredCredentials()
+            loadProfileImage()
         }
         .onAppear {
             if keepAwake {
@@ -781,8 +783,17 @@ struct ChannelListView: View {
             }
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "person.circle.fill")
-                    .font(.title2)
+                if let profileImage {
+                    Image(uiImage: profileImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 80, height: 80)
+                        .clipShape(Circle())
+                        .offset(y: 10)
+                } else {
+                    Image(systemName: "person.circle.fill")
+                        .font(.title2)
+                }
                 Text(mumbleService.currentUserProfile?.effectiveName ?? "")
                     .font(.subheadline)
                     .fontWeight(.medium)
@@ -790,6 +801,14 @@ struct ChannelListView: View {
                     .frame(maxWidth: 180)
             }
         }
+    }
+
+    private func loadProfileImage() {
+        guard let username = mumbleService.credentials?.username else { return }
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let url = cacheDir.appendingPathComponent("profile_\(username).jpg")
+        guard let data = try? Data(contentsOf: url) else { return }
+        profileImage = UIImage(data: data)
     }
 
     private var optionsMenu: some View {
