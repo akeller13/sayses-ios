@@ -1105,13 +1105,13 @@ class SemparaAPIClient {
         print("[API] Profile image uploaded successfully")
     }
 
-    /// Download profile image - GET /api/mobile/user/{username}/profile-image
+    /// Fetch user profile - GET /api/mobile/user/{username}/profile
     /// Signature format: {certificate_hash}:{timestamp}:{username}
-    /// Returns image Data or nil if no image exists
-    func downloadProfileImage(subdomain: String, certificateHash: String, username: String) async throws -> Data? {
+    /// Returns profile metadata (always) and image data (if available)
+    func fetchUserProfile(subdomain: String, certificateHash: String, username: String) async throws -> UserProfileResponse {
         let baseURL = getTenantBaseURL(subdomain: subdomain)
         guard let encodedUsername = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "\(baseURL)/api/mobile/user/\(encodedUsername)/profile-image") else {
+              let url = URL(string: "\(baseURL)/api/mobile/user/\(encodedUsername)/profile") else {
             throw APIError.invalidURL
         }
 
@@ -1132,16 +1132,31 @@ class SemparaAPIClient {
             throw APIError.invalidResponse
         }
 
-        // 404 means no image - return nil
+        // Extract profile metadata from response headers (URL-decoded)
+        let firstName = httpResponse.value(forHTTPHeaderField: "X-First-Name")?.removingPercentEncoding
+        let lastName = httpResponse.value(forHTTPHeaderField: "X-Last-Name")?.removingPercentEncoding
+        let jobFunction = httpResponse.value(forHTTPHeaderField: "X-Job-Function")?.removingPercentEncoding
+
+        // 404 means no image, but metadata is still available
         if httpResponse.statusCode == 404 {
-            return nil
+            return UserProfileResponse(
+                imageData: nil,
+                firstName: firstName,
+                lastName: lastName,
+                jobFunction: jobFunction
+            )
         }
 
         guard httpResponse.statusCode == 200 else {
             throw APIError.httpError(statusCode: httpResponse.statusCode)
         }
 
-        return data
+        return UserProfileResponse(
+            imageData: data,
+            firstName: firstName,
+            lastName: lastName,
+            jobFunction: jobFunction
+        )
     }
 
     // MARK: - Channel Members
@@ -1347,6 +1362,10 @@ struct AlarmSettings: Codable {
     let dispatcherButtonHoldTime: Float
     let dispatcherGpsWaitTime: Int
     let dispatcherVoiceMaxDuration: Int
+    let gpsUserTracking: Bool
+    let gpsTrackingInterval: Int
+    let alarmGpsInterval: Int
+    let dispatcherGpsInterval: Int
 
     enum CodingKeys: String, CodingKey {
         case alarmHoldDuration = "alarm_hold_duration"
@@ -1357,6 +1376,10 @@ struct AlarmSettings: Codable {
         case dispatcherButtonHoldTime = "dispatcher_button_hold_time"
         case dispatcherGpsWaitTime = "dispatcher_gps_wait_time"
         case dispatcherVoiceMaxDuration = "dispatcher_voice_max_duration"
+        case gpsUserTracking = "gps_user_tracking"
+        case gpsTrackingInterval = "gps_tracking_interval"
+        case alarmGpsInterval = "alarm_gps_interval"
+        case dispatcherGpsInterval = "dispatcher_gps_interval"
     }
 
     static let defaults = AlarmSettings(
@@ -1367,7 +1390,11 @@ struct AlarmSettings: Codable {
         dispatcherAlias: "Zentrale",
         dispatcherButtonHoldTime: 0.5,
         dispatcherGpsWaitTime: 30,
-        dispatcherVoiceMaxDuration: 20
+        dispatcherVoiceMaxDuration: 20,
+        gpsUserTracking: true,
+        gpsTrackingInterval: 30,
+        alarmGpsInterval: 30,
+        dispatcherGpsInterval: 30
     )
 }
 
@@ -1444,6 +1471,15 @@ struct UserAlarmPermissionsResponse: Codable {
         case canCallDispatcher = "can_call_dispatcher"
         case canActAsDispatcher = "can_act_as_dispatcher"
     }
+}
+
+// MARK: - User Profile Response
+
+struct UserProfileResponse {
+    let imageData: Data?
+    let firstName: String?
+    let lastName: String?
+    let jobFunction: String?
 }
 
 // MARK: - Errors

@@ -863,11 +863,20 @@ struct ChannelListView: View {
                     Image(systemName: "person.circle.fill")
                         .font(.title2)
                 }
-                Text(mumbleService.currentUserProfile?.effectiveName ?? "")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                    .frame(maxWidth: 180)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(mumbleService.currentUserProfile?.effectiveName ?? "")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                    if let jobFunction = mumbleService.currentUserProfile?.jobFunction,
+                       !jobFunction.isEmpty {
+                        Text(jobFunction)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: 180, alignment: .leading)
             }
             .padding(.leading, profileImage != nil ? 76 : 0)
         }
@@ -875,10 +884,41 @@ struct ChannelListView: View {
 
     private func loadProfileImage() {
         guard let username = mumbleService.credentials?.username else { return }
+
+        // Load from local cache immediately
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         let url = cacheDir.appendingPathComponent("profile_\(username).jpg")
-        guard let data = try? Data(contentsOf: url) else { return }
-        profileImage = UIImage(data: data)
+        if let data = try? Data(contentsOf: url) {
+            profileImage = UIImage(data: data)
+        }
+
+        // Fetch from backend (image + name/function metadata)
+        guard let subdomain = mumbleService.tenantSubdomain,
+              let certificateHash = mumbleService.credentials?.certificateHash else { return }
+
+        Task {
+            do {
+                let response = try await SemparaAPIClient().fetchUserProfile(
+                    subdomain: subdomain,
+                    certificateHash: certificateHash,
+                    username: username
+                )
+                await MainActor.run {
+                    if let data = response.imageData, let image = UIImage(data: data) {
+                        profileImage = image
+                        // Update local cache
+                        try? data.write(to: url)
+                    }
+                    mumbleService.updateCurrentUserProfile(
+                        firstName: response.firstName,
+                        lastName: response.lastName,
+                        jobFunction: response.jobFunction
+                    )
+                }
+            } catch {
+                print("[ChannelList] Failed to load profile: \(error)")
+            }
+        }
     }
 
     private var optionsMenu: some View {
@@ -1086,22 +1126,14 @@ struct InfoView: View {
                     LabeledContent("Codec", value: "Opus")
                 }
 
-                Section("Audio") {
-                    if let info = mumbleService.serverInfo {
-                        LabeledContent("Max. Bandbreite", value: "\(info.maxBandwidth / 1000) kbit/s")
-                    } else {
-                        LabeledContent("Max. Bandbreite", value: "—")
-                    }
-                }
-
                 Section("Server Einstellungen") {
+                    LabeledContent("GPS-User-Tracking", value: mumbleService.alarmSettings.gpsUserTracking ? "Aktiv" : "Inaktiv")
+                    LabeledContent("GPS-Tracking-Intervall", value: "\(mumbleService.alarmSettings.gpsTrackingInterval)s")
                     LabeledContent("Haltezeit Alarmbutton", value: formatHoldDuration(mumbleService.alarmSettings.alarmHoldDuration))
                     LabeledContent("Countdown-Dauer", value: "\(mumbleService.alarmSettings.alarmCountdownDuration)s")
-                    LabeledContent("Wartezeit GPS-Fix", value: "\(mumbleService.alarmSettings.gpsWaitDuration)s")
                     LabeledContent("Max. Dauer Alarm-Sprachnotiz", value: "\(mumbleService.alarmSettings.alarmVoiceNoteDuration)s")
                     LabeledContent("Dispatcher Alias", value: mumbleService.alarmSettings.dispatcherAlias)
                     LabeledContent("Haltezeit Dispatcher-Button", value: formatHoldDuration(mumbleService.alarmSettings.dispatcherButtonHoldTime))
-                    LabeledContent("Wartezeit GPS Dispatcher", value: "\(mumbleService.alarmSettings.dispatcherGpsWaitTime)s")
                     LabeledContent("Max. Dauer Dispatcher-Sprachnotiz", value: "\(mumbleService.alarmSettings.dispatcherVoiceMaxDuration)s")
                     LabeledContent("Letzte Aktualisierung", value: formatTimestamp(mumbleService.lastSettingsUpdate))
                 }

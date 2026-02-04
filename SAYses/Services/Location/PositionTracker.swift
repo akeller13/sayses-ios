@@ -28,28 +28,32 @@ enum TrackerState: Equatable {
 
 /// Konfiguration für geschwindigkeitsbasierte Frequenz
 struct SpeedBasedFrequency {
-    /// Stillstand (< 5 km/h): alle 5 Minuten
-    static let standingFrequency: TimeInterval = 300
+    /// Basis-Intervall aus Settings (Standard: 30s)
+    /// Stehend = 1x, Gehen = 0.5x, Fahren = 0.25x (min 20s)
+    let baseInterval: TimeInterval
 
-    /// Langsam/Gehen (5-15 km/h): jede Minute
-    static let walkingFrequency: TimeInterval = 60
-
-    /// Schnell/Fahren (> 15 km/h): alle 30 Sekunden
-    static let drivingFrequency: TimeInterval = 30
+    /// Minimum-Intervall in Sekunden
+    static let minimumInterval: TimeInterval = 20
 
     /// Schwellwerte in m/s
     static let walkingThreshold: Double = 5.0 / 3.6   // 5 km/h
     static let drivingThreshold: Double = 15.0 / 3.6  // 15 km/h
 
+    init(baseInterval: TimeInterval = 30) {
+        self.baseInterval = baseInterval
+    }
+
     /// Frequenz basierend auf Geschwindigkeit berechnen
-    static func frequency(forSpeed speed: Double) -> TimeInterval {
-        if speed < 0 || speed < walkingThreshold {
-            return standingFrequency
-        } else if speed < drivingThreshold {
-            return walkingFrequency
+    func frequency(forSpeed speed: Double) -> TimeInterval {
+        let interval: TimeInterval
+        if speed < 0 || speed < SpeedBasedFrequency.walkingThreshold {
+            interval = baseInterval * 1.0   // Stillstand: 1x Basis
+        } else if speed < SpeedBasedFrequency.drivingThreshold {
+            interval = baseInterval * 0.5   // Gehen: 0.5x Basis
         } else {
-            return drivingFrequency
+            interval = baseInterval * 0.25  // Fahren: 0.25x Basis
         }
+        return max(interval, SpeedBasedFrequency.minimumInterval)
     }
 }
 
@@ -84,6 +88,7 @@ class PositionTracker: ObservableObject {
     // MARK: - Configuration
 
     private var config = PositionTrackerConfig()
+    private var speedFrequency = SpeedBasedFrequency()
     private var baseMode: TrackingMode = .idle          // User-Einstellung
     private var boostMode: TrackingMode? = nil          // Alarm/Dispatcher Override
     private var activeSessionId: String?
@@ -97,7 +102,7 @@ class PositionTracker: ObservableObject {
     private var lastSentPosition: CLLocation?
     private var sendTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
-    private var frequencyCheckTask: Task<Void, Never>?
+    private var pollingTask: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
 
     /// Callback for location updates (for UPDATE_ALARM tree messages, local DB updates, etc.)
@@ -149,6 +154,12 @@ class PositionTracker: ObservableObject {
             }
             print("[PositionTracker] Background tracking disabled")
         }
+    }
+
+    /// Basis-Intervall für geschwindigkeitsbasiertes Tracking aktualisieren
+    func updateBaseInterval(_ interval: Int) {
+        speedFrequency = SpeedBasedFrequency(baseInterval: TimeInterval(interval))
+        NSLog("[PositionTracker] Updated base interval to %ds", interval)
     }
 
     /// Prüfen ob Hintergrund-Tracking aktiv ist
@@ -264,18 +275,11 @@ class PositionTracker: ObservableObject {
 
         print("[PositionTracker] Starting tracking: session=\(sessionId), mode=\(mode.description)")
 
-        // Location-Updates starten
-        locationService.startTracking { [weak self] location in
-            self?.handleLocationUpdate(location)
-        }
+        // Timer-basiertes GPS-Polling starten (batterieschonend)
+        startPollingLoop()
 
         // Send-Loop starten
         startSendLoop()
-
-        // Frequenz-Check für Background-Mode starten
-        if case .background = effectiveMode {
-            startFrequencyCheck()
-        }
 
         updateEffectiveFrequency()
     }
@@ -286,10 +290,9 @@ class PositionTracker: ObservableObject {
         NSLog("[PositionTracker] Stopping tracking, state=%@", String(describing: state))
         print("[PositionTracker] Stopping tracking")
 
-        locationService.stopTracking()
+        pollingTask?.cancel()
         sendTask?.cancel()
         retryTask?.cancel()
-        frequencyCheckTask?.cancel()
         flushTask?.cancel()
 
         state = .idle
@@ -300,62 +303,68 @@ class PositionTracker: ObservableObject {
         lastSentPosition = nil
     }
 
-    // MARK: - Location Handling
+    // MARK: - GPS Polling (Battery-efficient)
 
-    private func handleLocationUpdate(_ location: CLLocation) {
+    /// Timer-basiertes GPS-Polling: GPS nur bei Bedarf einschalten
+    private func startPollingLoop() {
+        pollingTask = Task { [weak self] in
+            // Erste Position sofort holen
+            await self?.pollPosition()
+
+            while !Task.isCancelled {
+                guard let self = self, self.state == .tracking else { break }
+
+                // Warten bis zum nächsten Intervall
+                let interval = self.currentFrequency()
+                NSLog("[PositionTracker] Next GPS poll in %.0fs", interval)
+
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+
+                guard !Task.isCancelled, self.state == .tracking else { break }
+
+                await self.pollPosition()
+            }
+        }
+    }
+
+    /// Einmalig GPS einschalten, Position holen, GPS ausschalten
+    private func pollPosition() async {
         guard state == .tracking else { return }
 
-        // Geschwindigkeit aktualisieren
+        NSLog("[PositionTracker] Polling GPS position...")
+
+        // GPS kurz einschalten und Position holen
+        guard let location = await locationService.getCurrentLocation() else {
+            NSLog("[PositionTracker] Failed to get GPS position")
+            return
+        }
+
+        // Geschwindigkeit aktualisieren für nächstes Intervall
         if location.speed >= 0 {
-            currentSpeed = location.speed
-        }
-
-        // Frequenz für Background-Modus aktualisieren
-        if case .background = effectiveMode {
-            updateEffectiveFrequency()
-        }
-
-        // Filter: Zeitintervall
-        let frequency = currentFrequency()
-        if let lastTime = lastPositionTime,
-           Date().timeIntervalSince(lastTime) < frequency {
-            return
-        }
-
-        // Filter: Mindestdistanz (optional)
-        if let minDistance = config.minDistance,
-           let lastLoc = lastSentPosition,
-           location.distance(from: lastLoc) < minDistance {
-            return
-        }
-
-        // Filter: Mindest-Richtungsänderung (optional)
-        if let minAngle = config.minAngleChange,
-           let lastLoc = lastSentPosition,
-           lastLoc.course >= 0 && location.course >= 0 {
-            var angleDiff = abs(location.course - lastLoc.course)
-            if angleDiff > 180 {
-                angleDiff = 360 - angleDiff
-            }
-            if angleDiff < minAngle {
-                return
+            await MainActor.run {
+                self.currentSpeed = location.speed
+                self.updateEffectiveFrequency()
             }
         }
 
-        // Position akzeptiert
+        NSLog("[PositionTracker] Got position: %.6f, %.6f (accuracy: %.1fm, speed: %.1f km/h)",
+              location.coordinate.latitude,
+              location.coordinate.longitude,
+              location.horizontalAccuracy,
+              location.speed >= 0 ? location.speed * 3.6 : -1)
+
+        // Position speichern
         lastPosition = location
         lastPositionTime = Date()
 
         // Callback für externe Nutzung (UPDATE_ALARM, lokale DB, etc.)
         if let callback = onLocationUpdate, let sessionId = activeSessionId {
-            DispatchQueue.main.async {
+            await MainActor.run {
                 callback(location, sessionId)
             }
         }
 
-        Task {
-            await bufferPosition(location)
-        }
+        await bufferPosition(location)
     }
 
     private func bufferPosition(_ location: CLLocation) async {
@@ -380,7 +389,7 @@ class PositionTracker: ObservableObject {
         case .idle:
             return .infinity
         case .background:
-            return SpeedBasedFrequency.frequency(forSpeed: currentSpeed)
+            return speedFrequency.frequency(forSpeed: currentSpeed)
         case .active(let seconds):
             return TimeInterval(seconds)
         }
@@ -388,21 +397,6 @@ class PositionTracker: ObservableObject {
 
     private func updateEffectiveFrequency() {
         effectiveFrequency = currentFrequency()
-    }
-
-    private func startFrequencyCheck() {
-        frequencyCheckTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 10_000_000_000) // 10 Sekunden
-                guard let self = self, !Task.isCancelled else { break }
-
-                if case .background = self.effectiveMode {
-                    await MainActor.run {
-                        self.updateEffectiveFrequency()
-                    }
-                }
-            }
-        }
     }
 
     // MARK: - Send Loop

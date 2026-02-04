@@ -8,10 +8,18 @@ import UIKit
 /// Current user profile information
 struct UserProfile {
     let username: String
-    let displayName: String?
+    var firstName: String?
+    var lastName: String?
+    var jobFunction: String?
 
     var effectiveName: String {
-        displayName ?? username
+        let parts = [firstName, lastName].compactMap { $0?.isEmpty == false ? $0 : nil }
+        return parts.isEmpty ? shortUsername : parts.joined(separator: " ")
+    }
+
+    /// Username without @tenant suffix
+    var shortUsername: String {
+        username.components(separatedBy: "@").first ?? username
     }
 }
 
@@ -303,7 +311,21 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
                 self.lastSettingsUpdate = Date()
             }
 
-            print("[MumbleService] Hourly settings refresh: hold=\(settings.alarmHoldDuration)s, countdown=\(settings.alarmCountdownDuration)s, gpsWait=\(settings.gpsWaitDuration)s, voiceNote=\(settings.alarmVoiceNoteDuration)s")
+            // Update fleet tracking based on settings
+            positionTracker.updateBaseInterval(settings.gpsTrackingInterval)
+            if settings.gpsUserTracking {
+                if !positionTracker.isBackgroundEnabled {
+                    positionTracker.setEnabled(true, subdomain: subdomain, certificateHash: certificateHash)
+                    NSLog("[MumbleService] Fleet tracking started (gpsUserTracking=true, interval=%ds)", settings.gpsTrackingInterval)
+                }
+            } else {
+                if positionTracker.isBackgroundEnabled {
+                    positionTracker.setEnabled(false, subdomain: subdomain, certificateHash: certificateHash)
+                    NSLog("[MumbleService] Fleet tracking stopped (gpsUserTracking=false)")
+                }
+            }
+
+            print("[MumbleService] Hourly settings refresh: hold=\(settings.alarmHoldDuration)s, countdown=\(settings.alarmCountdownDuration)s, gpsWait=\(settings.gpsWaitDuration)s, voiceNote=\(settings.alarmVoiceNoteDuration)s, gpsTracking=\(settings.gpsUserTracking), trackingInterval=\(settings.gpsTrackingInterval)s")
         } catch {
             print("[MumbleService] Hourly settings refresh failed: \(error)")
         }
@@ -1259,7 +1281,8 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             await MainActor.run {
                 self.currentUserProfile = UserProfile(
                     username: creds.username,
-                    displayName: creds.displayName != creds.username ? creds.displayName : nil
+                    firstName: creds.firstName,
+                    lastName: creds.lastName
                 )
 
                 // Extract permissions from credentials
@@ -1362,7 +1385,8 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         await MainActor.run {
             self.currentUserProfile = UserProfile(
                 username: creds.username,
-                displayName: creds.displayName != creds.username ? creds.displayName : nil
+                firstName: creds.firstName,
+                lastName: creds.lastName
             )
 
             // Extract permissions from credentials
@@ -1397,6 +1421,15 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             certificateP12Base64: creds.certificateP12Base64,
             certificatePassword: creds.certificatePassword
         )
+    }
+
+    /// Update current user profile with metadata from profile API
+    func updateCurrentUserProfile(firstName: String?, lastName: String?, jobFunction: String?) {
+        guard var profile = currentUserProfile else { return }
+        profile.firstName = firstName
+        profile.lastName = lastName
+        profile.jobFunction = jobFunction
+        currentUserProfile = profile
     }
 
     func connect(host: String, port: Int, username: String, password: String, certificatePath: String? = nil) {
@@ -2057,9 +2090,10 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
         // Use PositionTracker with boost mode for high-frequency tracking
         // Session ID format: "alarm_{backendId}" for unified GPS endpoint
+        let alarmInterval = alarmSettings.alarmGpsInterval
         positionTracker.boost(
             sessionId: "alarm_\(backendId)",
-            frequencySeconds: 10,
+            frequencySeconds: alarmInterval,
             subdomain: subdomain,
             certificateHash: certificateHash
         ) { [weak self] location, _ in
@@ -2593,9 +2627,10 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
         // Use PositionTracker with boost mode for high-frequency tracking
         // Session ID format: "dispatcher_{requestId}" for unified GPS endpoint
+        let dispatcherInterval = alarmSettings.dispatcherGpsInterval
         positionTracker.boost(
             sessionId: "dispatcher_\(requestId)",
-            frequencySeconds: 10,
+            frequencySeconds: dispatcherInterval,
             subdomain: subdomain,
             certificateHash: certificateHash
         )
