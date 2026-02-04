@@ -324,6 +324,36 @@ struct ChannelListView: View {
                 alarmTextVisible = true
             }
         }
+        .overlay(alignment: .topLeading) {
+            if let profileImage, navigationPath.isEmpty {
+                Menu {
+                    Button {
+                        showProfile = true
+                    } label: {
+                        Label("Profil", systemImage: "person.crop.circle")
+                    }
+                    Divider()
+                    Button {
+                        showInfo = true
+                    } label: {
+                        Label("Information", systemImage: "info.circle")
+                    }
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Label("Einstellungen", systemImage: "gear")
+                    }
+                } label: {
+                    Image(uiImage: profileImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 70, height: 70)
+                        .clipShape(Circle())
+                }
+                .padding(.leading, 10)
+                .padding(.top, 0)
+            }
+        }
     }
 
     // MARK: - Alarm Helpers
@@ -783,14 +813,7 @@ struct ChannelListView: View {
             }
         } label: {
             HStack(spacing: 6) {
-                if let profileImage {
-                    Image(uiImage: profileImage)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 80, height: 80)
-                        .clipShape(Circle())
-                        .offset(y: 10)
-                } else {
+                if profileImage == nil {
                     Image(systemName: "person.circle.fill")
                         .font(.title2)
                 }
@@ -800,6 +823,7 @@ struct ChannelListView: View {
                     .lineLimit(1)
                     .frame(maxWidth: 180)
             }
+            .padding(.leading, profileImage != nil ? 76 : 0)
         }
     }
 
