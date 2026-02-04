@@ -623,88 +623,90 @@ struct ChannelListView: View {
     }
 
     private var channelListContent: some View {
-        List {
-            // Tab header section (includes sub-tabs when dispatcher tab is selected)
-            Section {
-                VStack(spacing: 0) {
-                    HStack {
-                        // Kanäle tab (left)
+        VStack(spacing: 0) {
+            // Fixed tab bar
+            VStack(spacing: 0) {
+                HStack {
+                    // Kanäle tab (left)
+                    Button {
+                        selectedTab = .channels
+                    } label: {
+                        Text("Kanäle")
+                            .font(.title2)
+                            .fontWeight(selectedTab == .channels ? .bold : .regular)
+                            .foregroundStyle(selectedTab == .channels ? .primary : .secondary)
+                    }
+                    .buttonStyle(.plain)
+
+                    // Favorites star (only shown when channels tab is active)
+                    if selectedTab == .channels {
                         Button {
-                            selectedTab = .channels
+                            showOnlyFavorites.toggle()
                         } label: {
-                            Text("Kanäle")
+                            Image(systemName: "star.fill")
+                                .font(.title3)
+                                .foregroundStyle(showOnlyFavorites ? Color(red: 1.0, green: 0.84, blue: 0) : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Spacer()
+
+                    // Dispatcher tab (right, only if user has permission)
+                    if hasDispatcherPermission {
+                        Button {
+                            selectedTab = .dispatcher
+                        } label: {
+                            Text(mumbleService.alarmSettings.dispatcherAlias)
                                 .font(.title2)
-                                .fontWeight(selectedTab == .channels ? .bold : .regular)
-                                .foregroundStyle(selectedTab == .channels ? .primary : .secondary)
+                                .fontWeight(selectedTab == .dispatcher ? .bold : .regular)
+                                .foregroundStyle(selectedTab == .dispatcher ? .primary : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, profileImage != nil ? 46 : 8)
+                .padding(.bottom, 6)
+
+                // Divider line directly under tabs
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.3))
+                    .frame(height: 1)
+            }
+            .background(Color(UIColor.systemGroupedBackground))
+
+            List {
+            // Sub-tabs for dispatcher (Meldung/Servicedienst)
+            if selectedTab == .dispatcher && hasBothDispatcherPermissions {
+                Section {
+                    HStack {
+                        // "Meldung" tab (left)
+                        Button {
+                            selectedDispatcherSubTab = .sendMessage
+                        } label: {
+                            Text("Meldung")
+                                .font(.title3)
+                                .fontWeight(selectedDispatcherSubTab == .sendMessage ? .bold : .regular)
+                                .foregroundStyle(selectedDispatcherSubTab == .sendMessage ? .primary : .secondary)
                         }
                         .buttonStyle(.plain)
 
-                        // Favorites star (only shown when channels tab is active)
-                        if selectedTab == .channels {
-                            Button {
-                                showOnlyFavorites.toggle()
-                            } label: {
-                                Image(systemName: "star.fill")
-                                    .font(.title3)
-                                    .foregroundStyle(showOnlyFavorites ? Color(red: 1.0, green: 0.84, blue: 0) : .secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
                         Spacer()
 
-                        // Dispatcher tab (right, only if user has permission)
-                        if hasDispatcherPermission {
-                            Button {
-                                selectedTab = .dispatcher
-                            } label: {
-                                Text(mumbleService.alarmSettings.dispatcherAlias)
-                                    .font(.title2)
-                                    .fontWeight(selectedTab == .dispatcher ? .bold : .regular)
-                                    .foregroundStyle(selectedTab == .dispatcher ? .primary : .secondary)
-                            }
-                            .buttonStyle(.plain)
+                        // "Servicedienst" tab (right)
+                        Button {
+                            selectedDispatcherSubTab = .serviceDesk
+                        } label: {
+                            Text("Servicedienst")
+                                .font(.title3)
+                                .fontWeight(selectedDispatcherSubTab == .serviceDesk ? .bold : .regular)
+                                .foregroundStyle(selectedDispatcherSubTab == .serviceDesk ? .primary : .secondary)
                         }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal)
-                    .padding(.top, 8)
-                    .padding(.bottom, 6)
-
-                    // Divider line directly under tabs
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.3))
-                        .frame(height: 1)
-
-                    // Sub-tabs for dispatcher (Meldung/Servicedienst) - in same section to avoid gap
-                    if selectedTab == .dispatcher && hasBothDispatcherPermissions {
-                        HStack {
-                            // "Meldung" tab (left)
-                            Button {
-                                selectedDispatcherSubTab = .sendMessage
-                            } label: {
-                                Text("Meldung")
-                                    .font(.title3)
-                                    .fontWeight(selectedDispatcherSubTab == .sendMessage ? .bold : .regular)
-                                    .foregroundStyle(selectedDispatcherSubTab == .sendMessage ? .primary : .secondary)
-                            }
-                            .buttonStyle(.plain)
-
-                            Spacer()
-
-                            // "Servicedienst" tab (right)
-                            Button {
-                                selectedDispatcherSubTab = .serviceDesk
-                            } label: {
-                                Text("Servicedienst")
-                                    .font(.title3)
-                                    .fontWeight(selectedDispatcherSubTab == .serviceDesk ? .bold : .regular)
-                                    .foregroundStyle(selectedDispatcherSubTab == .serviceDesk ? .primary : .secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal)
-                        .padding(.top, 4)
-                    }
+                    .padding(.top, 4)
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
@@ -785,9 +787,10 @@ struct ChannelListView: View {
                 }
             }
         }
-        .refreshable {
-            await mumbleService.reconnect()
-        }
+            .refreshable {
+                await mumbleService.reconnect()
+            }
+        } // VStack
     }
 
     private var profileMenu: some View {
