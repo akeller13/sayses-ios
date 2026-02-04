@@ -64,6 +64,7 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
         guard let certificateData = Data(base64Encoded: certificateP12Base64) else {
             print("[MumbleConnection] ERROR: Failed to decode base64 certificate!")
             delegate?.connectionError("Ungültiges Zertifikat-Format (Base64-Dekodierung fehlgeschlagen)")
+            delegate?.connectionStateChanged(.failed)
             return
         }
 
@@ -344,7 +345,17 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
 
     private func handleUserRemove(data: Data) {
         let remove = MumbleParsers.parseUserRemove(data: data)
-        print("[MumbleConnection] UserRemove: session=\(remove.session)")
+        print("[MumbleConnection] UserRemove: session=\(remove.session), reason=\(remove.reason), ban=\(remove.ban)")
+
+        // Check if the removed user is us (kicked by server)
+        if remove.session == localSession {
+            print("[MumbleConnection] LOCAL USER was removed/kicked! reason: \(remove.reason)")
+            connectionState = .failed
+            let kickReason = remove.reason.isEmpty ? "Kicked by server" : remove.reason
+            delegate?.connectionError(kickReason)
+            delegate?.connectionStateChanged(.failed)
+            return
+        }
 
         users.removeValue(forKey: remove.session)
         removeDecoder(for: remove.session)

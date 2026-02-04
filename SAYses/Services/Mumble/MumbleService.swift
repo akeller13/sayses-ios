@@ -22,6 +22,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     @Published private(set) var users: [User] = []
     @Published private(set) var serverInfo: ServerInfo?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var ghostKickMessage: String?
     @Published private(set) var currentUserProfile: UserProfile?
 
     /// The channel the local user is currently in (from server state)
@@ -806,6 +807,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         reconnectAttempts = 0
         cancelReconnect()
         wasKicked = false
+        ghostKickMessage = nil
 
         // Start hourly settings refresh
         startHourlySettingsRefresh()
@@ -1098,28 +1100,18 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         }
 
         // Check if kicked because another client connected with same credentials (ghost disconnect)
+        // UserRemove reason from Mumble server may contain "kicked" or the actual reason text
         let isGhostDisconnect = reasonLower.contains("ghost") ||
                                reasonLower.contains("another") ||
-                               reasonLower.contains("duplicate")
+                               reasonLower.contains("duplicate") ||
+                               reasonLower.contains("kicked")
 
         if isGhostDisconnect {
-            print("[MumbleService] Kicked (ghost/duplicate session) - will retry after 5s delay")
+            print("[MumbleService] Kicked (ghost/duplicate session) - NOT auto-reconnecting to prevent ping-pong")
             wasKicked = true
+            userDisconnected = true  // Prevent auto-reconnect
             cancelReconnect()
-
-            // Schedule a delayed reconnect after 5 seconds (matches Android)
-            ghostReconnectTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 5_000_000_000)  // 5 seconds
-                guard !Task.isCancelled, let self = self else { return }
-
-                if !self.userDisconnected && self.lastCredentials != nil {
-                    print("[MumbleService] Ghost disconnect delay expired - attempting reconnect")
-                    await MainActor.run {
-                        self.wasKicked = false
-                    }
-                    self.scheduleReconnect(immediate: true)
-                }
-            }
+            ghostKickMessage = "Sie wurden getrennt, da sich ein anderes Gerät mit Ihrem Konto angemeldet hat."
             return
         }
 
@@ -1460,6 +1452,11 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     @MainActor
     func reconnect() async {
         print("[MumbleService] reconnect() called, current state: \(connectionState)")
+
+        // Reset ghost kick state so manual reconnect is allowed
+        userDisconnected = false
+        wasKicked = false
+        ghostKickMessage = nil
 
         // Ensure we're disconnected first
         if connectionState != .disconnected && connectionState != .failed {
@@ -2924,6 +2921,16 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     func connectionRejected(reason: MumbleRejectReason, message: String) {
         DispatchQueue.main.async {
             self.errorMessage = message.isEmpty ? reason.localizedDescription : message
+
+            // usernameInUse means our ghost session is still on the server — treat as ghost kick
+            if reason == .usernameInUse {
+                print("[MumbleService] Reject: usernameInUse — treating as ghost kick")
+                self.wasKicked = true
+                self.userDisconnected = true
+                self.cancelReconnect()
+                self.ghostKickMessage = "Sie wurden getrennt, da sich ein anderes Gerät mit Ihrem Konto angemeldet hat."
+            }
+
             self.connectionState = .failed
         }
     }
@@ -2931,7 +2938,8 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     func connectionError(_ message: String) {
         DispatchQueue.main.async {
             self.errorMessage = message
-            self.connectionState = .failed
+            // Don't set connectionState here — let connectionStateChanged() handle
+            // the state transition so onConnectionLost() sees the correct previousState
         }
     }
 

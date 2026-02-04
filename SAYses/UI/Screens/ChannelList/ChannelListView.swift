@@ -438,34 +438,56 @@ struct ChannelListView: View {
 
     private var errorView: some View {
         VStack(spacing: 20) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 50))
-                .foregroundStyle(.orange)
+            if let ghostMessage = mumbleService.ghostKickMessage {
+                Image(systemName: "iphone.and.arrow.forward")
+                    .font(.system(size: 50))
+                    .foregroundStyle(.blue)
 
-            Text("Verbindung fehlgeschlagen")
-                .font(.headline)
+                Text("Anderes Gerät angemeldet")
+                    .font(.headline)
 
-            if let error = mumbleService.errorMessage {
-                Text(error)
+                Text(ghostMessage)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
-            }
 
-            // Debug info
-            let hasSubdomain = UserDefaults.standard.string(forKey: "subdomain") != nil
-            let hasCreds = CredentialsStore.shared.getStoredCredentials() != nil
-            Text("Debug: subdomain=\(hasSubdomain), creds=\(hasCreds)")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-
-            Button("Erneut versuchen") {
-                Task {
-                    await mumbleService.reconnect()
+                Button("Erneut verbinden") {
+                    Task {
+                        await mumbleService.reconnect()
+                    }
                 }
+                .buttonStyle(.borderedProminent)
+            } else {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 50))
+                    .foregroundStyle(.orange)
+
+                Text("Verbindung fehlgeschlagen")
+                    .font(.headline)
+
+                if let error = mumbleService.errorMessage {
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                // Debug info
+                let hasSubdomain = UserDefaults.standard.string(forKey: "subdomain") != nil
+                let hasCreds = CredentialsStore.shared.getStoredCredentials() != nil
+                Text("Debug: subdomain=\(hasSubdomain), creds=\(hasCreds)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+
+                Button("Erneut versuchen") {
+                    Task {
+                        await mumbleService.reconnect()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
         }
     }
 
