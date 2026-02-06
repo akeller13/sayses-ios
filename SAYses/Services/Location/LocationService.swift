@@ -83,8 +83,11 @@ class LocationService: NSObject, ObservableObject {
 
         guard isLocationAvailable else {
             NSLog("[LocationService] Location not available — requesting authorization")
-            // Request permission; tracking will auto-start in locationManagerDidChangeAuthorization
-            requestAuthorization()
+            // Defer authorization request to avoid UI unresponsiveness on main thread.
+            // Tracking will auto-start in locationManagerDidChangeAuthorization when granted.
+            DispatchQueue.main.async { [weak self] in
+                self?.requestAuthorization()
+            }
             return
         }
 

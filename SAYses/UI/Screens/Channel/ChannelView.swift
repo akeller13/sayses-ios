@@ -15,8 +15,12 @@ struct ChannelView: View {
     @StateObject private var imageCache = ChannelImageCache.shared
     @AppStorage("doubleClickToggleMode") private var doubleClickToggleMode = false
     @AppStorage("keepAwake") private var keepAwake = true
+    @AppStorage("confirmLeaveChannel") private var confirmLeaveChannel = true
     @AppStorage("transmissionMode") private var transmissionModeRaw = TransmissionMode.pushToTalk.rawValue
     @Environment(\.dismiss) private var dismiss
+
+    /// Tracks whether leaving should switch to dispatcher tab
+    @State private var leaveToDispatcher = false
 
     init(channel: Channel, mumbleService: MumbleService) {
         self.channel = channel
@@ -94,7 +98,13 @@ struct ChannelView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
-                    showLeaveConfirmation = true
+                    if confirmLeaveChannel {
+                        leaveToDispatcher = false
+                        showLeaveConfirmation = true
+                    } else {
+                        viewModel.leaveChannel()
+                        dismiss()
+                    }
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.title2)
@@ -163,6 +173,9 @@ struct ChannelView: View {
         .alert("Kanal verlassen?", isPresented: $showLeaveConfirmation) {
             Button("Bleiben", role: .cancel) {}
             Button("Verlassen", role: .destructive) {
+                if leaveToDispatcher {
+                    mumbleService.switchToDispatcherTab = true
+                }
                 viewModel.leaveChannel()
                 dismiss()
             }
@@ -275,9 +288,14 @@ struct ChannelView: View {
             // Navigates back to channel list and switches to dispatcher tab
             if mumbleService.userPermissions.canCallDispatcher {
                 Button(action: {
-                    mumbleService.switchToDispatcherTab = true
-                    viewModel.leaveChannel()
-                    dismiss()
+                    if confirmLeaveChannel {
+                        leaveToDispatcher = true
+                        showLeaveConfirmation = true
+                    } else {
+                        mumbleService.switchToDispatcherTab = true
+                        viewModel.leaveChannel()
+                        dismiss()
+                    }
                 }) {
                     Image(systemName: "person.wave.2")
                         .font(.title)

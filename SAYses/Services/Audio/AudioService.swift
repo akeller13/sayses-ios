@@ -127,18 +127,10 @@ class AudioService: ObservableObject {
         // Store the callback - this is called for each audio buffer
         captureCallback = callback
 
-        // If already capturing, check if C++ engine is still actually running
-        // iOS may have stopped the Audio Unit after long inactivity without notification
+        // If already capturing, just update the callback (it will be used by existing capture)
         if isCapturing {
-            if let engine = audioEngine, engine.isCapturing {
-                NSLog("[AudioService] Already capturing - callback updated, C++ engine continues")
-                return
-            } else {
-                // C++ engine stopped unexpectedly (iOS killed it after inactivity)
-                NSLog("[AudioService] WARNING: isCapturing=true but C++ engine stopped - restarting")
-                isCapturing = false
-                // Fall through to restart
-            }
+            NSLog("[AudioService] Already capturing - callback updated")
+            return
         }
 
         guard let engine = audioEngine else {

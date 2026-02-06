@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("keepAwake") private var keepAwake = true
-    @AppStorage("speechOutput") private var speechOutput = false
+    @AppStorage("confirmLeaveChannel") private var confirmLeaveChannel = true
     @AppStorage("transmissionMode") private var transmissionMode = TransmissionMode.pushToTalk.rawValue
     @AppStorage("doubleClickToggleMode") private var doubleClickToggleMode = false
     @AppStorage("mapProvider") private var mapProvider = MapProvider.appleMaps.rawValue
@@ -14,7 +14,7 @@ struct SettingsView: View {
             Form {
                 Section("Allgemein") {
                     Toggle("Wach bleiben", isOn: $keepAwake)
-                    Toggle("Sprachausgabe", isOn: $speechOutput)
+                    Toggle("Verlassen des Kanals bestätigen", isOn: $confirmLeaveChannel)
                 }
 
                 Section("Übertragung") {
