@@ -133,7 +133,11 @@ class LocationService: NSObject, ObservableObject {
 
         print("[LocationService] Stopping GPS warm-up")
         isWarmingUp = false
-        locationManager.stopUpdatingLocation()
+
+        // Only stop location updates if not continuously tracking
+        if !isTracking {
+            locationManager.stopUpdatingLocation()
+        }
     }
 
     // MARK: - Get Current Location
@@ -166,7 +170,7 @@ class LocationService: NSObject, ObservableObject {
 
         let location = await waitForLocation(timeout: singleLocationTimeout)
 
-        if !isWarmingUp {
+        if !isWarmingUp && !isTracking {
             locationManager.stopUpdatingLocation()
         }
 

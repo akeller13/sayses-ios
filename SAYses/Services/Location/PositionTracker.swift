@@ -497,6 +497,8 @@ class PositionTracker: ObservableObject {
             await MainActor.run {
                 if self.state == .retrying {
                     self.state = .tracking
+                    // Restart the send loop — it exited when state became .retrying
+                    self.startSendLoop()
                 }
             }
         }
