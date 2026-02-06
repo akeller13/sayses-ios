@@ -78,13 +78,17 @@ class LocationService: NSObject, ObservableObject {
             return
         }
 
+        // Store callback so tracking can auto-start when authorization is granted
+        trackingCallback = callback
+
         guard isLocationAvailable else {
-            NSLog("[LocationService] Location not available for continuous tracking")
+            NSLog("[LocationService] Location not available — requesting authorization")
+            // Request permission; tracking will auto-start in locationManagerDidChangeAuthorization
+            requestAuthorization()
             return
         }
 
         NSLog("[LocationService] Starting continuous tracking")
-        trackingCallback = callback
         isTracking = true
         locationManager.startUpdatingLocation()
     }
@@ -260,10 +264,17 @@ extension LocationService: CLLocationManagerDelegate {
         print("[LocationService] Authorization changed: \(status.rawValue)")
         authorizationStatus = status
 
-        // If just authorized, request better authorization
+        // Auto-start continuous tracking if authorization was just granted
+        // and a tracking callback is waiting
+        if isLocationAvailable && !isTracking && trackingCallback != nil {
+            NSLog("[LocationService] Authorization granted — auto-starting continuous tracking")
+            isTracking = true
+            locationManager.startUpdatingLocation()
+        }
+
+        // After "When in Use" is granted, request "Always" for background tracking
         if status == .authorizedWhenInUse {
-            // Optionally request always authorization for background tracking
-            // locationManager.requestAlwaysAuthorization()
+            locationManager.requestAlwaysAuthorization()
         }
     }
 }
