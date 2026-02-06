@@ -99,10 +99,10 @@ class PositionTracker: ObservableObject {
 
     private var lastPosition: CLLocation?
     private var lastPositionTime: Date?
+    private var lastBufferedTime: Date?  // Zeit der letzten gepufferten Position
     private var lastSentPosition: CLLocation?
     private var sendTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
-    private var pollingTask: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
 
     /// Callback for location updates (for UPDATE_ALARM tree messages, local DB updates, etc.)
@@ -272,11 +272,14 @@ class PositionTracker: ObservableObject {
         activeSessionId = sessionId
         state = .tracking
         mode = effectiveMode
+        lastBufferedTime = nil  // Reset für sofortige erste Position
 
         print("[PositionTracker] Starting tracking: session=\(sessionId), mode=\(mode.description)")
 
-        // Timer-basiertes GPS-Polling starten (batterieschonend)
-        startPollingLoop()
+        // Kontinuierliches GPS-Tracking starten (einzige zuverlässige Methode auf iOS im Hintergrund)
+        locationService.startContinuousTracking { [weak self] location in
+            self?.handleLocationUpdate(location)
+        }
 
         // Send-Loop starten
         startSendLoop()
@@ -290,7 +293,7 @@ class PositionTracker: ObservableObject {
         NSLog("[PositionTracker] Stopping tracking, state=%@", String(describing: state))
         print("[PositionTracker] Stopping tracking")
 
-        pollingTask?.cancel()
+        locationService.stopContinuousTracking()
         sendTask?.cancel()
         retryTask?.cancel()
         flushTask?.cancel()
@@ -300,71 +303,63 @@ class PositionTracker: ObservableObject {
         activeSessionId = nil
         lastPosition = nil
         lastPositionTime = nil
+        lastBufferedTime = nil
         lastSentPosition = nil
     }
 
-    // MARK: - GPS Polling (Battery-efficient)
+    // MARK: - Continuous Location Updates (iOS Background-compatible)
 
-    /// Timer-basiertes GPS-Polling: GPS nur bei Bedarf einschalten
-    private func startPollingLoop() {
-        pollingTask = Task { [weak self] in
-            // Erste Position sofort holen
-            await self?.pollPosition()
+    /// Handle incoming location update from LocationService
+    /// Uses time-based filtering instead of timers (timers don't work in iOS background)
+    private func handleLocationUpdate(_ location: CLLocation) {
+        // Nicht verarbeiten wenn idle
+        guard state != .idle else { return }
 
-            while !Task.isCancelled {
-                guard let self = self, self.state == .tracking else { break }
-
-                // Warten bis zum nächsten Intervall
-                let interval = self.currentFrequency()
-                NSLog("[PositionTracker] Next GPS poll in %.0fs", interval)
-
-                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-
-                guard !Task.isCancelled, self.state == .tracking else { break }
-
-                await self.pollPosition()
-            }
-        }
-    }
-
-    /// Einmalig GPS einschalten, Position holen, GPS ausschalten
-    private func pollPosition() async {
-        guard state == .tracking else { return }
-
-        NSLog("[PositionTracker] Polling GPS position...")
-
-        // GPS kurz einschalten und Position holen
-        guard let location = await locationService.getCurrentLocation() else {
-            NSLog("[PositionTracker] Failed to get GPS position")
-            return
-        }
-
-        // Geschwindigkeit aktualisieren für nächstes Intervall
+        // Geschwindigkeit aktualisieren für Frequenz-Berechnung (nur bei signifikanter Änderung)
         if location.speed >= 0 {
-            await MainActor.run {
-                self.currentSpeed = location.speed
-                self.updateEffectiveFrequency()
+            let speedDelta = abs(location.speed - currentSpeed)
+            // Only update UI if speed changed by more than 1 km/h (0.28 m/s)
+            if speedDelta > 0.28 {
+                DispatchQueue.main.async {
+                    self.currentSpeed = location.speed
+                    self.updateEffectiveFrequency()
+                }
             }
         }
 
-        NSLog("[PositionTracker] Got position: %.6f, %.6f (accuracy: %.1fm, speed: %.1f km/h)",
+        // Zeit-basiertes Filtern: Nur puffern wenn genug Zeit vergangen ist
+        let interval = currentFrequency()
+        if let lastTime = lastBufferedTime {
+            let elapsed = Date().timeIntervalSince(lastTime)
+            if elapsed < interval {
+                // Noch nicht genug Zeit vergangen, Position überspringen
+                return
+            }
+        }
+
+        // Position verarbeiten
+        NSLog("[PositionTracker] Processing position: %.6f, %.6f (accuracy: %.1fm, speed: %.1f km/h, interval: %.0fs)",
               location.coordinate.latitude,
               location.coordinate.longitude,
               location.horizontalAccuracy,
-              location.speed >= 0 ? location.speed * 3.6 : -1)
+              location.speed >= 0 ? location.speed * 3.6 : -1,
+              interval)
 
-        // Position speichern
         lastPosition = location
         lastPositionTime = Date()
+        lastBufferedTime = Date()
 
         // Callback für externe Nutzung (UPDATE_ALARM, lokale DB, etc.)
         if let callback = onLocationUpdate, let sessionId = activeSessionId {
-            await MainActor.run {
+            DispatchQueue.main.async {
                 callback(location, sessionId)
             }
         }
 
-        await bufferPosition(location)
+        // Position puffern (async)
+        Task {
+            await bufferPosition(location)
+        }
     }
 
     private func bufferPosition(_ location: CLLocation) async {

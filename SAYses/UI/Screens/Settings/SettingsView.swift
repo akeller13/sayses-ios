@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage("speechOutput") private var speechOutput = false
     @AppStorage("transmissionMode") private var transmissionMode = TransmissionMode.pushToTalk.rawValue
     @AppStorage("doubleClickToggleMode") private var doubleClickToggleMode = false
+    @AppStorage("mapProvider") private var mapProvider = MapProvider.appleMaps.rawValue
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthViewModel.self) private var authViewModel
 
@@ -29,6 +30,14 @@ struct SettingsView: View {
 
                 Section("Alarm") {
                     AlarmSoundSettingRow()
+                }
+
+                Section("Tracking") {
+                    Picker("Kartenanbieter", selection: $mapProvider) {
+                        ForEach(MapProvider.allCases, id: \.rawValue) { provider in
+                            Text(provider.displayName).tag(provider.rawValue)
+                        }
+                    }
                 }
 
                 Section("Info") {

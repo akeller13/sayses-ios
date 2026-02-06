@@ -169,11 +169,12 @@ class ChannelViewModel {
             for member in members where member.hasProfileImage {
                 group.addTask { [apiClient] in
                     do {
-                        if let data = try await apiClient.downloadProfileImage(
+                        let response = try await apiClient.fetchUserProfile(
                             subdomain: subdomain,
                             certificateHash: certificateHash,
                             username: member.username
-                        ), let image = UIImage(data: data) {
+                        )
+                        if let data = response.imageData, let image = UIImage(data: data) {
                             return (member.username, image)
                         }
                     } catch {

@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 
 struct MembersSheet: View {
     let channel: Channel
@@ -6,16 +7,27 @@ struct MembersSheet: View {
     let channelMembers: [ChannelMember]
     let memberProfileImages: [String: UIImage]
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedMemberForMap: ChannelMember?
+
+    /// All channel members sorted: online first, then offline
+    private var sortedMembers: [(member: ChannelMember, onlineUser: User?)] {
+        let mapped = channelMembers.map { cm in
+            (member: cm, onlineUser: findMumbleUser(for: cm))
+        }
+        return mapped.sorted { a, b in
+            if (a.onlineUser != nil) != (b.onlineUser != nil) {
+                return a.onlineUser != nil
+            }
+            return a.member.displayName.localizedCompare(b.member.displayName) == .orderedAscending
+        }
+    }
 
     var body: some View {
         NavigationStack {
-            List(members) { member in
-                let channelMember = findChannelMember(for: member.name)
-
+            List(sortedMembers, id: \.member.id) { entry in
                 HStack(spacing: 12) {
                     // Avatar - profile image or initials fallback
-                    if let channelMember = channelMember,
-                       let image = memberProfileImages[channelMember.username] {
+                    if let image = memberProfileImages[entry.member.username] {
                         Image(uiImage: image)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
@@ -26,7 +38,7 @@ struct MembersSheet: View {
                             .fill(Color.semparaPrimary.opacity(0.2))
                             .frame(width: 40, height: 40)
                             .overlay {
-                                Text(channelMember?.initials ?? String(member.name.prefix(1)).uppercased())
+                                Text(entry.member.initials)
                                     .font(.headline)
                                     .foregroundStyle(Color.semparaPrimary)
                             }
@@ -34,10 +46,11 @@ struct MembersSheet: View {
 
                     // Name and function
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(channelMember?.displayName ?? member.name)
+                        Text(entry.member.displayName)
                             .font(.body)
+                            .foregroundStyle(entry.onlineUser != nil ? .primary : .secondary)
 
-                        if let jobFunction = channelMember?.jobFunction, !jobFunction.isEmpty {
+                        if let jobFunction = entry.member.jobFunction, !jobFunction.isEmpty {
                             Text(jobFunction)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -46,15 +59,34 @@ struct MembersSheet: View {
 
                     Spacer()
 
-                    // Status icons
-                    if member.isMuted {
-                        Image(systemName: "mic.slash.fill")
-                            .foregroundStyle(.red)
+                    // GPS position indicator (tappable)
+                    if entry.member.hasRecentPosition {
+                        Button {
+                            selectedMemberForMap = entry.member
+                        } label: {
+                            Image(systemName: "location.fill")
+                                .foregroundStyle(.blue)
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    if member.isDeafened {
-                        Image(systemName: "speaker.slash.fill")
-                            .foregroundStyle(.orange)
+
+                    // Mute/deaf icons for online users
+                    if let user = entry.onlineUser {
+                        if user.isMuted {
+                            Image(systemName: "mic.slash.fill")
+                                .foregroundStyle(.red)
+                        }
+                        if user.isDeafened {
+                            Image(systemName: "speaker.slash.fill")
+                                .foregroundStyle(.orange)
+                        }
                     }
+
+                    // Online/offline indicator
+                    Circle()
+                        .fill(entry.onlineUser != nil ? Color.green : Color.gray.opacity(0.4))
+                        .frame(width: 10, height: 10)
                 }
             }
             .navigationTitle(channel.name)
@@ -67,15 +99,22 @@ struct MembersSheet: View {
                 }
             }
         }
+        .sheet(item: $selectedMemberForMap) { member in
+            if let lat = member.latitude, let lon = member.longitude {
+                PositionMapSheet(
+                    coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                    title: member.displayName
+                )
+            }
+        }
         .presentationDetents([.medium, .large])
     }
 
-    /// Match Mumble username to backend ChannelMember by username
-    private func findChannelMember(for mumbleName: String) -> ChannelMember? {
-        // Backend usernames include @tenant suffix (e.g. "jack.bauer@deltasecurity")
-        // Match directly, or fallback to matching without suffix
-        return channelMembers.first { $0.username == mumbleName }
-            ?? channelMembers.first { $0.username.components(separatedBy: "@").first == mumbleName.components(separatedBy: "@").first }
+    /// Find the online Mumble user matching a backend ChannelMember
+    private func findMumbleUser(for channelMember: ChannelMember) -> User? {
+        let cmBase = channelMember.username.components(separatedBy: "@").first ?? channelMember.username
+        return members.first { $0.name == channelMember.username }
+            ?? members.first { $0.name.components(separatedBy: "@").first == cmBase }
     }
 }
 
@@ -85,11 +124,11 @@ struct MembersSheet: View {
         members: [
             User(session: 1, channelId: 1, name: "max@demo"),
             User(session: 2, channelId: 1, name: "anna@demo", isMuted: true),
-            User(session: 3, channelId: 1, name: "peter@demo")
         ],
         channelMembers: [
-            ChannelMember(username: "max", firstName: "Max", lastName: "Mustermann", jobFunction: "Techniker", hasProfileImage: false),
-            ChannelMember(username: "anna", firstName: "Anna", lastName: "Schmidt", jobFunction: "Leiterin", hasProfileImage: false),
+            ChannelMember(username: "max@demo", firstName: "Max", lastName: "Mustermann", jobFunction: "Techniker", hasProfileImage: false, latitude: 49.445, longitude: 7.772, positionTimestamp: "2024-01-01T12:00:00"),
+            ChannelMember(username: "anna@demo", firstName: "Anna", lastName: "Schmidt", jobFunction: "Leiterin", hasProfileImage: false, latitude: nil, longitude: nil, positionTimestamp: nil),
+            ChannelMember(username: "peter@demo", firstName: "Peter", lastName: "Müller", jobFunction: nil, hasProfileImage: false, latitude: nil, longitude: nil, positionTimestamp: nil),
         ],
         memberProfileImages: [:]
     )

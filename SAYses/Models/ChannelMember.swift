@@ -6,6 +6,9 @@ struct ChannelMember: Codable, Identifiable {
     let lastName: String?
     let jobFunction: String?
     let hasProfileImage: Bool
+    let latitude: Double?
+    let longitude: Double?
+    let positionTimestamp: String?
 
     var id: String { username }
 
@@ -26,11 +29,19 @@ struct ChannelMember: Codable, Identifiable {
         return String(shortUsername.prefix(1)).uppercased()
     }
 
+    /// User has a recent GPS position
+    var hasRecentPosition: Bool {
+        latitude != nil && longitude != nil && positionTimestamp != nil
+    }
+
     enum CodingKeys: String, CodingKey {
         case username
         case firstName = "first_name"
         case lastName = "last_name"
         case jobFunction = "job_function"
         case hasProfileImage = "has_profile_image"
+        case latitude
+        case longitude
+        case positionTimestamp = "position_timestamp"
     }
 }

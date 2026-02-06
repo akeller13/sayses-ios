@@ -47,6 +47,9 @@
 		70D81D1D3FC3F3010FE608D2 /* AlarmSoundPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D7FA405A5D7576AEDA1435D /* AlarmSoundPicker.swift */; };
 		7648E85298F5B054FBAAE110 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06D87CA17D78F7F369D16DB9 /* User.swift */; };
 		CHMB001002003004005006AA /* ChannelMember.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHMB001002003004005006BB /* ChannelMember.swift */; };
+		MAP001002003004005006AA /* MapProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAP001002003004005006BB /* MapProvider.swift */; };
+		PMV001002003004005006AA /* PositionMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PMV001002003004005006BB /* PositionMapView.swift */; };
+		PMS001002003004005006AA /* PositionMapSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = PMS001002003004005006BB /* PositionMapSheet.swift */; };
 		79AF6597ED777B7750C8FB5C /* speex_dsp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 120FBF80F2C7E4B76198E76A /* speex_dsp.cpp */; };
 		7C0802C1AB334B5CB5D5BDF2 /* OpusCodecBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = 82A8B60D6B804FB5B3E74FED /* OpusCodecBridge.mm */; };
 		7EDF55F5F9FC84B3AE2E516B /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E7B47165A9FFA18BAF097BAF /* AudioToolbox.framework */; };
@@ -107,6 +110,9 @@
 		03FD34D7E539538FF3536B14 /* ChannelViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelViewModel.swift; sourceTree = "<group>"; };
 		06D87CA17D78F7F369D16DB9 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
 		CHMB001002003004005006BB /* ChannelMember.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelMember.swift; sourceTree = "<group>"; };
+		MAP001002003004005006BB /* MapProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapProvider.swift; sourceTree = "<group>"; };
+		PMV001002003004005006BB /* PositionMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionMapView.swift; sourceTree = "<group>"; };
+		PMS001002003004005006BB /* PositionMapSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionMapSheet.swift; sourceTree = "<group>"; };
 		0C2495334455C7954408C421 /* user_audio_buffer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = user_audio_buffer.h; path = ../../../Core/include/user_audio_buffer.h; sourceTree = "<group>"; };
 		10E434BE64BB3355E6E97B57 /* audio_engine.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = audio_engine.mm; path = ../../../../Core/src/audio/audio_engine.mm; sourceTree = "<group>"; };
 		11CEB34B8610C736FA971098 /* AudioCastScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioCastScreen.swift; sourceTree = "<group>"; };
@@ -272,6 +278,7 @@
 			children = (
 				79FE61506BFB445E498CF55A /* Channel.swift */,
 				CHMB001002003004005006BB /* ChannelMember.swift */,
+				MAP001002003004005006BB /* MapProvider.swift */,
 				06D87CA17D78F7F369D16DB9 /* User.swift */,
 				507A7B4D2BC8659C5A486CE2 /* AlarmModels.swift */,
 				33705A009486368E024E8EC9 /* AudioCastModels.swift */,
@@ -327,6 +334,8 @@
 				5D7FA405A5D7576AEDA1435D /* AlarmSoundPicker.swift */,
 				4569F2D98D0163CE9085C37E /* AlarmAlertDialog.swift */,
 				E1A2B3C4D5E6F7890ABCDEF1 /* EndAlarmAlertDialog.swift */,
+				PMV001002003004005006BB /* PositionMapView.swift */,
+				PMS001002003004005006BB /* PositionMapSheet.swift */,
 				IMGP01A2B3C4D5E6F7890AB1 /* ImagePicker.swift */,
 			);
 			path = Components;
@@ -788,6 +797,9 @@
 				3C5371927FB065AFFB7B2BA7 /* OfflineStatusBanner.swift in Sources */,
 				7648E85298F5B054FBAAE110 /* User.swift in Sources */,
 				CHMB001002003004005006AA /* ChannelMember.swift in Sources */,
+				MAP001002003004005006AA /* MapProvider.swift in Sources */,
+				PMV001002003004005006AA /* PositionMapView.swift in Sources */,
+				PMS001002003004005006AA /* PositionMapSheet.swift in Sources */,
 				184F031E6D4E3144B0168705 /* WorkspaceLookup.swift in Sources */,
 				5F552BB86B3DB3A7992C14B9 /* jitter_buffer.cpp in Sources */,
 				79AF6597ED777B7750C8FB5C /* speex_dsp.cpp in Sources */,

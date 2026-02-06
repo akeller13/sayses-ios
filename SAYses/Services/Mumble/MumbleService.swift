@@ -1455,6 +1455,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     /// Called on disconnect to ensure fresh data on next login
     private func clearCache() {
         print("[MumbleService] Clearing cached data")
+        isInitialSync = true
         DispatchQueue.main.async {
             self.channels = []
             self.users = []
@@ -2806,6 +2807,12 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         joinChannel(tenantChannelId)
     }
 
+    /// Flag to suppress navigation during initial connection sync.
+    /// Set to true in clearCache(), cleared after first channelsUpdated completes.
+    /// Prevents handleChannelSync from triggering navigation before channels are loaded,
+    /// which causes a rapid push/pop cycle that corrupts NavigationStack state.
+    private var isInitialSync = true
+
     // Debounce timer for channel updates
     private var channelUpdateWorkItem: DispatchWorkItem?
     private var pendingChannelList: [Channel]?
@@ -2830,6 +2837,13 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             // correct user counts that were set by usersUpdated
             // (Matches Android behavior where user counts are always recalculated)
             self.updateChannelUserCounts()
+
+            // Mark initial sync as complete — channels are now populated,
+            // so handleChannelSync can safely trigger navigation from now on.
+            if self.isInitialSync {
+                print("[MumbleService] Initial sync complete — channels loaded")
+                self.isInitialSync = false
+            }
         }
 
         channelUpdateWorkItem = workItem
@@ -2887,7 +2901,16 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
     private func handleChannelSync(newChannelId: UInt32) {
         let viewedChannel = currentlyViewedChannelId
-        print("[MumbleService] handleChannelSync: newChannelId=\(newChannelId), viewedChannel=\(viewedChannel ?? 0), tenantChannelId=\(tenantChannelId)")
+        print("[MumbleService] handleChannelSync: newChannelId=\(newChannelId), viewedChannel=\(viewedChannel ?? 0), tenantChannelId=\(tenantChannelId), isInitialSync=\(isInitialSync)")
+
+        // During initial connection sync, don't trigger navigation.
+        // Channels aren't loaded yet (debounced) and autoJoinTenantChannel() is already
+        // moving the user — navigating now would cause a rapid push/pop cycle that
+        // corrupts the NavigationStack state (blank screen on first launch).
+        if isInitialSync {
+            print("[MumbleService] Skipping navigation during initial sync")
+            return
+        }
 
         // If user is viewing a channel that doesn't match server state
         if let viewed = viewedChannel, viewed != newChannelId {

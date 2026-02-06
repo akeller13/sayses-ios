@@ -127,10 +127,18 @@ class AudioService: ObservableObject {
         // Store the callback - this is called for each audio buffer
         captureCallback = callback
 
-        // If already capturing, just update the callback (it will be used by existing capture)
+        // If already capturing, check if C++ engine is still actually running
+        // iOS may have stopped the Audio Unit after long inactivity without notification
         if isCapturing {
-            NSLog("[AudioService] Already capturing - callback updated")
-            return
+            if let engine = audioEngine, engine.isCapturing {
+                NSLog("[AudioService] Already capturing - callback updated, C++ engine continues")
+                return
+            } else {
+                // C++ engine stopped unexpectedly (iOS killed it after inactivity)
+                NSLog("[AudioService] WARNING: isCapturing=true but C++ engine stopped - restarting")
+                isCapturing = false
+                // Fall through to restart
+            }
         }
 
         guard let engine = audioEngine else {
@@ -156,10 +164,12 @@ class AudioService: ObservableObject {
     }
 
     func stopCapture() {
-        // Just clear the callback - don't stop the actual capture
-        // This allows level monitoring to continue
+        // Clear the callback but keep the C++ engine running for level monitoring
+        // IMPORTANT: isCapturing stays true so next startCapture() just updates the callback
+        // The C++ engine closure reads self.captureCallback dynamically, so updating
+        // captureCallback is sufficient - no need to restart the C++ engine
         captureCallback = nil
-        NSLog("[AudioService] Capture callback cleared (capture still running for levels)")
+        NSLog("[AudioService] Capture callback cleared (C++ engine continues for levels)")
     }
 
     /// Fully stop capture including level monitoring
@@ -271,19 +281,31 @@ class AudioService: ObservableObject {
     private func startLevelMonitoring() {
         levelMonitorTask?.cancel()
         levelMonitorTask = Task { [weak self] in
+            var lastLevel: Float = -1
+            var lastVoiceDetected: Bool? = nil
+
             while !Task.isCancelled {
                 guard let self = self, let engine = self.audioEngine else { return }
 
                 let level = engine.inputLevel
                 let voiceDetected = engine.isVoiceDetected
 
-                await MainActor.run {
-                    self.inputLevel = level
-                    self.isVoiceDetected = voiceDetected
+                // Only update UI when values change significantly (reduces main thread load)
+                let levelChanged = abs(level - lastLevel) > 0.02  // 2% threshold
+                let voiceChanged = lastVoiceDetected != voiceDetected
+
+                if levelChanged || voiceChanged {
+                    lastLevel = level
+                    lastVoiceDetected = voiceDetected
+
+                    await MainActor.run {
+                        self.inputLevel = level
+                        self.isVoiceDetected = voiceDetected
+                    }
                 }
 
-                // 50ms interval (0.05 seconds)
-                try? await Task.sleep(nanoseconds: 50_000_000)
+                // 100ms interval (reduced from 50ms - still responsive but less CPU load)
+                try? await Task.sleep(nanoseconds: 100_000_000)
             }
         }
     }

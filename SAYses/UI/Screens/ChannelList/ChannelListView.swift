@@ -37,7 +37,6 @@ struct ChannelListView: View {
     // Alarm state
     @State private var showAlarmCountdown = false
     @State private var showOpenAlarms = false
-    @State private var alarmTextVisible = true
 
     // Post-alarm recording state
     @State private var showPostAlarmRecording = false
@@ -126,7 +125,7 @@ struct ChannelListView: View {
             // Alarm button - using safeAreaInset to not interfere with NavigationStack
             // Only show on channels tab, not on dispatcher tab
             .safeAreaInset(edge: .bottom) {
-                if selectedTab == .channels && mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized {
+                if selectedTab == .channels && navigationPath.isEmpty && mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized {
                     AlarmTriggerButton(
                         isEnabled: !mumbleService.hasOwnOpenAlarm,
                         holdDuration: Double(mumbleService.alarmSettings.alarmHoldDuration),
@@ -318,18 +317,8 @@ struct ChannelListView: View {
             selectedTab = .dispatcher
             mumbleService.switchToDispatcherTab = false
         }
-        // Blink animation for ALARM text
-        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
-            if !mumbleService.openAlarms.isEmpty {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    alarmTextVisible.toggle()
-                }
-            } else {
-                alarmTextVisible = true
-            }
-        }
         .overlay(alignment: .topLeading) {
-            if let profileImage, navigationPath.isEmpty {
+            if let profileImage, navigationPath.isEmpty, mumbleService.currentlyViewedChannelId == nil {
                 Menu {
                     Button {
                         showProfile = true

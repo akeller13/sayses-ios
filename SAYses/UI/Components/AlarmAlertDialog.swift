@@ -7,6 +7,8 @@ struct AlarmAlertDialog: View {
     let alarm: AlarmEntity
     let onDismiss: () -> Void
 
+    @State private var showMapSheet = false
+
     private var timeString: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
@@ -89,7 +91,7 @@ struct AlarmAlertDialog: View {
                             }
 
                             Button(action: {
-                                openInMaps(latitude: lat, longitude: lon)
+                                showMapSheet = true
                             }) {
                                 HStack {
                                     Image(systemName: "location.fill")
@@ -103,6 +105,12 @@ struct AlarmAlertDialog: View {
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
                                         .stroke(Color.white, lineWidth: 1)
+                                )
+                            }
+                            .sheet(isPresented: $showMapSheet) {
+                                PositionMapSheet(
+                                    coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                                    title: alarm.triggeredByDisplayName ?? alarm.triggeredByUsername
                                 )
                             }
                         }
@@ -134,15 +142,6 @@ struct AlarmAlertDialog: View {
         }
     }
 
-    private func openInMaps(latitude: Double, longitude: Double) {
-        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-        let placemark = MKPlacemark(coordinate: coordinate)
-        let mapItem = MKMapItem(placemark: placemark)
-        mapItem.name = alarm.triggeredByDisplayName ?? alarm.triggeredByUsername
-        mapItem.openInMaps(launchOptions: [
-            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDefault
-        ])
-    }
 }
 
 #Preview {

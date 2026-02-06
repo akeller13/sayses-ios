@@ -11,7 +11,6 @@ struct ChannelView: View {
     @State private var showAudioCast = false
     @State private var lastPttTapTime: Date?  // Time of last quick tap RELEASE
     @State private var pttPressStartTime: Date?  // When current press started
-    @State private var alarmTextVisible = true
     @State private var showOpenAlarms = false
     @StateObject private var imageCache = ChannelImageCache.shared
     @AppStorage("doubleClickToggleMode") private var doubleClickToggleMode = false
@@ -169,16 +168,6 @@ struct ChannelView: View {
             }
         } message: {
             Text("Möchtest du den Kanal wirklich verlassen?")
-        }
-        // Blink animation for ALARM text
-        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
-            if !mumbleService.openAlarms.isEmpty {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    alarmTextVisible.toggle()
-                }
-            } else {
-                alarmTextVisible = true
-            }
         }
     }
 

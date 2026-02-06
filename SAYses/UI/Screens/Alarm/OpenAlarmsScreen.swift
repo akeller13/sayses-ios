@@ -139,6 +139,7 @@ struct AlarmRowView: View {
 
     @StateObject private var voicePlayer = VoicePlayer()
     @State private var showEndConfirmation = false
+    @State private var showMapSheet = false
     @State private var isDownloading = false
     @State private var localVoicePath: URL?
 
@@ -252,7 +253,7 @@ struct AlarmRowView: View {
         HStack(alignment: .top) {
             // Clickable location link (left column)
             Button {
-                openInMaps(latitude: latitude, longitude: longitude)
+                showMapSheet = true
             } label: {
                 HStack(alignment: .top, spacing: 4) {
                     Image(systemName: "location.fill")
@@ -272,6 +273,12 @@ struct AlarmRowView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .sheet(isPresented: $showMapSheet) {
+                PositionMapSheet(
+                    coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+                    title: "Alarm: \(alarm.effectiveName)"
+                )
+            }
 
             Spacer()
 
@@ -395,20 +402,6 @@ struct AlarmRowView: View {
         isDownloading = false
     }
 
-    private func openInMaps(latitude: Double, longitude: Double) {
-        print("[AlarmRowView] openInMaps called with lat=\(latitude), lon=\(longitude)")
-        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-        let placemark = MKPlacemark(coordinate: coordinate)
-        let mapItem = MKMapItem(placemark: placemark)
-        mapItem.name = "Alarm: \(alarm.effectiveName)"
-        print("[AlarmRowView] Opening maps for: \(mapItem.name ?? "unknown")")
-
-        // Show location only, no directions
-        mapItem.openInMaps(launchOptions: [
-            MKLaunchOptionsMapCenterKey: NSValue(mkCoordinate: coordinate),
-            MKLaunchOptionsMapSpanKey: NSValue(mkCoordinateSpan: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
-        ])
-    }
 
     private func voiceTranscriptionSection(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {

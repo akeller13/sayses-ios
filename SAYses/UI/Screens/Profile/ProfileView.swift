@@ -142,20 +142,25 @@ struct ProfileView: View {
             isLoadingImage = false
         }
 
-        // Then fetch from backend
+        // Then fetch from backend (image + metadata)
         do {
-            if let data = try await apiClient.downloadProfileImage(
+            let response = try await apiClient.fetchUserProfile(
                 subdomain: subdomain,
                 certificateHash: certificateHash,
                 username: username
-            ) {
-                if let image = UIImage(data: data) {
-                    profileImage = image
-                    saveCachedImage(data: data, username: username)
-                }
+            )
+            if let data = response.imageData, let image = UIImage(data: data) {
+                profileImage = image
+                saveCachedImage(data: data, username: username)
             }
+            // Update current user profile with latest metadata from backend
+            mumbleService.updateCurrentUserProfile(
+                firstName: response.firstName,
+                lastName: response.lastName,
+                jobFunction: response.jobFunction
+            )
         } catch {
-            print("[Profile] Failed to load profile image: \(error)")
+            print("[Profile] Failed to load profile: \(error)")
         }
         isLoadingImage = false
     }
