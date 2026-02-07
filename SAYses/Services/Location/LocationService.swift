@@ -44,16 +44,23 @@ class LocationService: NSObject, ObservableObject {
 
     // MARK: - Authorization
 
-    /// Request location authorization
+    /// Request location authorization (must be on main thread for CLLocationManager)
     func requestAuthorization() {
-        switch locationManager.authorizationStatus {
-        case .notDetermined:
-            locationManager.requestWhenInUseAuthorization()
-        case .authorizedWhenInUse:
-            // Request always authorization for background tracking
-            locationManager.requestAlwaysAuthorization()
-        default:
-            break
+        let doRequest = { [weak self] in
+            guard let self = self else { return }
+            switch self.locationManager.authorizationStatus {
+            case .notDetermined:
+                self.locationManager.requestWhenInUseAuthorization()
+            case .authorizedWhenInUse:
+                self.locationManager.requestAlwaysAuthorization()
+            default:
+                break
+            }
+        }
+        if Thread.isMainThread {
+            doRequest()
+        } else {
+            DispatchQueue.main.async(execute: doRequest)
         }
     }
 
@@ -73,21 +80,19 @@ class LocationService: NSObject, ObservableObject {
     /// Start continuous location tracking with callback for each update
     /// This is the only reliable way to get location updates in background on iOS
     func startContinuousTracking(callback: @escaping (CLLocation) -> Void) {
+        // Always update the callback, even if already tracking
+        trackingCallback = callback
+
         guard !isTracking else {
-            NSLog("[LocationService] Already tracking continuously")
+            NSLog("[LocationService] Already tracking continuously — callback updated")
             return
         }
 
-        // Store callback so tracking can auto-start when authorization is granted
-        trackingCallback = callback
-
         guard isLocationAvailable else {
-            NSLog("[LocationService] Location not available — requesting authorization")
-            // Defer authorization request to avoid UI unresponsiveness on main thread.
+            NSLog("[LocationService] Location not available (status=%d) — requesting authorization",
+                  authorizationStatus.rawValue)
             // Tracking will auto-start in locationManagerDidChangeAuthorization when granted.
-            DispatchQueue.main.async { [weak self] in
-                self?.requestAuthorization()
-            }
+            requestAuthorization()
             return
         }
 
@@ -277,7 +282,7 @@ extension LocationService: CLLocationManagerDelegate {
 
         // After "When in Use" is granted, request "Always" for background tracking
         if status == .authorizedWhenInUse {
-            locationManager.requestAlwaysAuthorization()
+            requestAuthorization()
         }
     }
 }

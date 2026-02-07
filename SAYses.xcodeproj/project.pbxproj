@@ -20,7 +20,6 @@
 		0AC5E48BDC3D5DD9301BCD53 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D142C74BC30977E5E53C794 /* AuthViewModel.swift */; };
 		0B58944E9ADDE037C7A48C2B /* Colors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666E03D768EEAB973B6BCA33 /* Colors.swift */; };
 		1120C1BD55104585894ED0F7 /* SAYsesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7673FEA823152C68C43A86AF /* SAYsesApp.swift */; };
-		14A8FCB6688AFE7C944F7E6A /* ChannelListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA4E349B9EF37009298CD38 /* ChannelListViewModel.swift */; };
 		14F84F1C2967FE1094BFD18E /* opus_codec.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7BF79262DE38F5016B422AE5 /* opus_codec.cpp */; };
 		16F95DF30485395FD2AA5EEE /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77630C04F0DE3572C542932A /* SettingsView.swift */; };
 		18204B2F947DA05B3F219A87 /* Pods_SAYses.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2142798EA2FB9C2792C6B7C4 /* Pods_SAYses.framework */; };
@@ -131,7 +130,6 @@
 		4569F2D98D0163CE9085C37E /* AlarmAlertDialog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmAlertDialog.swift; sourceTree = "<group>"; };
 		4A8F9608AA702F672ABF99E3 /* codec.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = codec.h; path = ../../../Core/include/codec.h; sourceTree = "<group>"; };
 		4C9D07A1C692630C6F385582 /* speex_dsp.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = speex_dsp.h; path = ../../../Core/include/speex_dsp.h; sourceTree = "<group>"; };
-		4EA4E349B9EF37009298CD38 /* ChannelListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelListViewModel.swift; sourceTree = "<group>"; };
 		4EBC9C8454E3CB6CFCE39F1D /* TransmissionMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransmissionMode.swift; sourceTree = "<group>"; };
 		507A7B4D2BC8659C5A486CE2 /* AlarmModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmModels.swift; sourceTree = "<group>"; };
 		51DBEB0B8825AC23F2F9FCE2 /* MumbleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MumbleService.swift; sourceTree = "<group>"; };
@@ -631,7 +629,6 @@
 			isa = PBXGroup;
 			children = (
 				3D142C74BC30977E5E53C794 /* AuthViewModel.swift */,
-				4EA4E349B9EF37009298CD38 /* ChannelListViewModel.swift */,
 				03FD34D7E539538FF3536B14 /* ChannelViewModel.swift */,
 				02AFB15031D1771CBD576A51 /* AudioCastViewModel.swift */,
 			);
@@ -770,7 +767,6 @@
 				0AC5E48BDC3D5DD9301BCD53 /* AuthViewModel.swift in Sources */,
 				BB26A7C878AC917761079CC1 /* Channel.swift in Sources */,
 				8AA9016C8D2EE04CD68D8D6F /* ChannelListView.swift in Sources */,
-				14A8FCB6688AFE7C944F7E6A /* ChannelListViewModel.swift in Sources */,
 				64F086D89ADEA65D9ACBDC13 /* ChannelRowView.swift in Sources */,
 				02C181DF0FC28535908EA5C0 /* ChannelView.swift in Sources */,
 				370B80D4D2AB87AFAC2B2723 /* ChannelViewModel.swift in Sources */,

@@ -90,6 +90,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
     // MARK: - Hourly Settings Refresh
     private var settingsRefreshTask: Task<Void, Never>?
+    private var gpsPriorityCheckTask: Task<Void, Never>?
     private var alarmSyncTask: Task<Void, Never>?
     @Published private(set) var alarmSettings: AlarmSettings = .defaults
     @Published private(set) var lastSettingsUpdate: Date?
@@ -123,6 +124,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     // Opus codec for audio encoding/decoding
     private var opusCodec: OpusCodecBridge?
     private var audioSequenceNumber: Int64 = 0
+    private var audioDebugCounter: Int = 0
 
     // Audio playback state
     private var isMixedPlaybackStarted = false
@@ -205,6 +207,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         ghostReconnectTask?.cancel()
         settingsRefreshTask?.cancel()
         alarmSyncTask?.cancel()
+        gpsPriorityCheckTask?.cancel()
     }
 
     private func setupOpusCodec() {
@@ -313,16 +316,11 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
             // Update fleet tracking based on settings
             positionTracker.updateBaseInterval(settings.gpsTrackingInterval)
-            if settings.gpsUserTracking {
-                if !positionTracker.isBackgroundEnabled {
-                    positionTracker.setEnabled(true, subdomain: subdomain, certificateHash: certificateHash)
-                    NSLog("[MumbleService] Fleet tracking started (gpsUserTracking=true, interval=%ds)", settings.gpsTrackingInterval)
-                }
-            } else {
-                if positionTracker.isBackgroundEnabled {
-                    positionTracker.setEnabled(false, subdomain: subdomain, certificateHash: certificateHash)
-                    NSLog("[MumbleService] Fleet tracking stopped (gpsUserTracking=false)")
-                }
+            let wasEnabled = positionTracker.backgroundEnabled
+            positionTracker.setBackgroundEnabled(settings.gpsUserTracking, subdomain: subdomain, certificateHash: certificateHash)
+            if wasEnabled != settings.gpsUserTracking {
+                NSLog("[MumbleService] Fleet tracking changed: %@", settings.gpsUserTracking ? "enabled" : "disabled")
+                reevaluateGPSPriority()
             }
 
             print("[MumbleService] Hourly settings refresh: hold=\(settings.alarmHoldDuration)s, countdown=\(settings.alarmCountdownDuration)s, gpsWait=\(settings.gpsWaitDuration)s, voiceNote=\(settings.alarmVoiceNoteDuration)s, gpsTracking=\(settings.gpsUserTracking), trackingInterval=\(settings.gpsTrackingInterval)s")
@@ -842,8 +840,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             await syncAlarms()
             print("[MumbleService] Initial sync complete")
 
-            // Resume position tracking for own alarms after reconnect
-            resumePositionTrackingForOwnAlarms()
+            // Reevaluate GPS priority (replaces resumePositionTrackingForOwnAlarms)
+            // Checks: own open alarm → dispatcher request → background tracking
+            self.reevaluateGPSPriority()
 
             // Retry pending dispatcher cancel if any
             await retryPendingDispatcherCancel()
@@ -851,6 +850,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
         // Start periodic alarm sync (every 20 seconds)
         startAlarmSyncTimer()
+
+        // Start periodic GPS priority check (every 10 minutes)
+        startGPSPriorityCheckTimer()
 
         // Start SSE for real-time channel permission updates
         startChannelUpdatesSSE()
@@ -1443,6 +1445,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         cancelReconnect()
         stopHourlySettingsRefresh()
         stopAlarmSyncTimer()
+        stopGPSPriorityCheckTimer()
         stopChannelUpdatesSSE()
         stopAlarmUpdatesSSE()
         stopTransmitting()
@@ -1528,14 +1531,12 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         return users.filter { $0.channelId == channelId }
     }
 
-    func getChannelsForDisplay() -> [Channel] {
-        return channels
-    }
 
     // MARK: - Audio
 
     func startTransmitting() {
-        NSLog("[MumbleService] Start transmitting, connectionState=\(connectionState)")
+        NSLog("[MumbleService] Start transmitting, connectionState=\(connectionState), seq=\(audioSequenceNumber), isCapturing=\(audioService.isCapturing)")
+        audioDebugCounter = 0
 
         // Only reset sequence if not already transmitting
         if !audioService.isCapturing {
@@ -1549,6 +1550,14 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     }
 
     private func encodeAndSendAudio(data: UnsafePointer<Int16>, frames: Int) {
+        audioDebugCounter += 1
+        if audioDebugCounter % 100 == 1 {
+            NSLog("[MumbleService] encodeAndSendAudio called (#%d, frames=%d, seq=%lld, codec=%@, state=%@)",
+                  audioDebugCounter, frames, audioSequenceNumber,
+                  opusCodec != nil ? "OK" : "NIL",
+                  String(describing: connectionState))
+        }
+
         guard let codec = opusCodec else {
             NSLog("[MumbleService] encodeAndSendAudio: No opus codec!")
             return
@@ -1559,8 +1568,10 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         }
 
         // Buffer samples and encode in 480-sample chunks (iOS may deliver 512, 1024, etc.)
+        var encodedCount = 0
         codec.addSamplesAndEncode(data, frameCount: Int32(frames)) { [weak self] opusData in
             guard let self = self else { return }
+            encodedCount += 1
 
             // Send encoded packet to server
             // IMPORTANT: isTerminator must be true for single-frame packets!
@@ -1573,6 +1584,10 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             )
 
             self.audioSequenceNumber += 1
+        }
+
+        if audioDebugCounter % 100 == 1 {
+            NSLog("[MumbleService] encodeAndSendAudio: encoded %d packets from %d frames", encodedCount, frames)
         }
     }
 
@@ -2066,10 +2081,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             return
         }
 
-        // If tracking a different alarm, stop it first
+        // If tracking a different alarm, the transition is handled automatically by setAlarmMode()
         if positionTrackingAlarmId != alarmId && positionTracker.state != .idle {
-            print("[MumbleService] Stopping tracking for previous alarm \(positionTrackingAlarmId ?? "nil") to start tracking \(alarmId)")
-            positionTracker.endBoost()
+            print("[MumbleService] Switching tracking from alarm \(positionTrackingAlarmId ?? "nil") to \(alarmId)")
         }
 
         let resolvedBackendId = backendAlarmId ?? alarmBackendId
@@ -2089,10 +2103,10 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         positionTrackingAlarmId = alarmId
         positionTrackingBackendId = backendId
 
-        // Use PositionTracker with boost mode for high-frequency tracking
+        // Use PositionTracker alarm mode for high-frequency tracking
         // Session ID format: "alarm_{backendId}" for unified GPS endpoint
         let alarmInterval = alarmSettings.alarmGpsInterval
-        positionTracker.boost(
+        positionTracker.setAlarmMode(
             sessionId: "alarm_\(backendId)",
             frequencySeconds: alarmInterval,
             subdomain: subdomain,
@@ -2129,9 +2143,98 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     func stopPositionTracking() {
         NSLog("[MumbleService] Stopping position tracking - alarmId=%@", positionTrackingAlarmId ?? "nil")
         print("[MumbleService] Stopping position tracking")
-        positionTracker.endBoost()
         positionTrackingAlarmId = nil
         positionTrackingBackendId = nil
+        reevaluateGPSPriority()
+    }
+
+    // MARK: - GPS Priority Reevaluation
+
+    /// Central method to determine the correct GPS tracking interval.
+    /// Priority: 1. Own open alarm → alarm interval, 2. Open dispatcher request → dispatcher interval, 3. Normal background tracking
+    /// Called after alarm/dispatcher state changes and periodically every 10 minutes as fallback.
+    func reevaluateGPSPriority() {
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else {
+            NSLog("[PositionTracker] reevaluateGPSPriority: no credentials, skipping")
+            return
+        }
+
+        // Log current state for diagnosis
+        NSLog("[MumbleService] reevaluateGPSPriority: openAlarms=%d, hasOwnOpenAlarm=%@, dispatcherHistory=%d, trackerState=%@, mode=%@",
+              openAlarms.count, hasOwnOpenAlarm ? "YES" : "NO",
+              dispatcherRequestHistory.count,
+              String(describing: positionTracker.state),
+              positionTracker.mode.description)
+
+        // Priority 1: Own open alarm
+        if hasOwnOpenAlarm,
+           let ownAlarm = findOwnOpenAlarm() {
+            let interval = alarmSettings.alarmGpsInterval
+            let sessionId = "alarm_\(ownAlarm.backendAlarmId ?? ownAlarm.alarmId)"
+            NSLog("[MumbleService] GPS priority: ALARM (interval=%ds, session=%@)", interval, sessionId)
+            positionTracker.setAlarmMode(
+                sessionId: sessionId,
+                frequencySeconds: interval,
+                subdomain: subdomain,
+                certificateHash: certificateHash
+            )
+            return
+        }
+
+        // Priority 2: Open dispatcher request (status = "pending")
+        if let openRequest = dispatcherRequestHistory.first(where: { $0.status == "pending" }) {
+            let interval = alarmSettings.dispatcherGpsInterval
+            let sessionId = "dispatcher_\(openRequest.id)"
+            NSLog("[MumbleService] GPS priority: DISPATCHER (interval=%ds, session=%@)", interval, sessionId)
+            positionTracker.setDispatcherMode(
+                sessionId: sessionId,
+                frequencySeconds: interval,
+                subdomain: subdomain,
+                certificateHash: certificateHash
+            )
+            return
+        }
+
+        // Priority 3: Normal background tracking or stop
+        let dispatcherStatuses = dispatcherRequestHistory.map { "\($0.id):\($0.status)" }.joined(separator: ", ")
+        if positionTracker.backgroundEnabled {
+            NSLog("[MumbleService] GPS priority: NORMAL (backgroundEnabled, openAlarms=%d, dispatcherStatuses=[%@])",
+                  openAlarms.count, dispatcherStatuses)
+            positionTracker.setNormalMode()
+        } else {
+            NSLog("[MumbleService] GPS priority: STOP (backgroundDisabled, openAlarms=%d, dispatcherStatuses=[%@])",
+                  openAlarms.count, dispatcherStatuses)
+            positionTracker.stopTracking()
+        }
+    }
+
+    /// Find own open alarm entity
+    private func findOwnOpenAlarm() -> AlarmEntity? {
+        guard let username = credentials?.username else { return nil }
+        let usernameLower = username.lowercased()
+        return openAlarms.first(where: { $0.triggeredByUsername.lowercased() == usernameLower })
+    }
+
+    /// Start periodic GPS priority check (every 10 minutes)
+    private func startGPSPriorityCheckTimer() {
+        gpsPriorityCheckTask?.cancel()
+        gpsPriorityCheckTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 600_000_000_000) // 10 minutes
+                guard !Task.isCancelled, let self = self else { break }
+                NSLog("[MumbleService] Periodic GPS priority check")
+                await MainActor.run {
+                    self.reevaluateGPSPriority()
+                }
+            }
+        }
+    }
+
+    /// Stop periodic GPS priority check
+    private func stopGPSPriorityCheckTimer() {
+        gpsPriorityCheckTask?.cancel()
+        gpsPriorityCheckTask = nil
     }
 
     /// Resume position tracking for own alarms after reconnect
@@ -2457,8 +2560,8 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             self.isDispatcherRequestActive = false
             self.currentDispatcherRequestId = nil
             self.dispatcherRequestBackendId = nil
+            self.reevaluateGPSPriority()
         }
-        positionTracker.endBoost()
     }
 
     /// Retry pending cancel request after reconnect (called from reconnect logic)
@@ -2614,6 +2717,12 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         }
 
         dispatcherVoiceFilePath = nil
+
+        // Reevaluate GPS priority: dispatcher request is now pending,
+        // so GPS continues at dispatcher interval until request is resolved
+        await MainActor.run {
+            self.reevaluateGPSPriority()
+        }
     }
 
     /// Start position tracking for dispatcher request using PositionTracker
@@ -2626,10 +2735,10 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             return
         }
 
-        // Use PositionTracker with boost mode for high-frequency tracking
+        // Use PositionTracker dispatcher mode for position tracking
         // Session ID format: "dispatcher_{requestId}" for unified GPS endpoint
         let dispatcherInterval = alarmSettings.dispatcherGpsInterval
-        positionTracker.boost(
+        positionTracker.setDispatcherMode(
             sessionId: "dispatcher_\(requestId)",
             frequencySeconds: dispatcherInterval,
             subdomain: subdomain,
@@ -2641,7 +2750,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     /// Stop dispatcher request tracking
     func stopDispatcherRequest() {
         print("[MumbleService] Stopping dispatcher request")
-        positionTracker.endBoost()
+        reevaluateGPSPriority()
         cancelVoiceRecording()
 
         DispatchQueue.main.async {
@@ -2739,6 +2848,8 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
                         await MainActor.run {
                             self.dispatcherRequestHistory = self.dispatcherHistoryCache.getItems()
                             self.isLoadingDispatcherHistory = false
+                            // Reevaluate GPS priority when dispatcher status changes via SSE
+                            self.reevaluateGPSPriority()
                         }
                     }
 

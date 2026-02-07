@@ -18,6 +18,7 @@ class AudioService: ObservableObject {
 
     // Callbacks
     private var captureCallback: ((UnsafePointer<Int16>, Int) -> Void)?
+    private var captureCallbackInvocations: Int = 0
     private var playbackCallback: ((UnsafeMutablePointer<Int16>, Int) -> Int)?
 
     // Level monitoring task
@@ -141,7 +142,19 @@ class AudioService: ObservableObject {
         let success = engine.startCapture { [weak self] data, frames in
             guard let self = self else { return }
             // Call the current callback (may be updated later)
-            self.captureCallback?(data, frames)
+            if self.captureCallback != nil {
+                self.captureCallbackInvocations += 1
+                if self.captureCallbackInvocations % 500 == 1 {
+                    NSLog("[AudioService] C++ callback → captureCallback (invocation #%d, frames=%d)", self.captureCallbackInvocations, frames)
+                }
+                self.captureCallback?(data, frames)
+            } else {
+                // Log occasionally when callback is nil (PTT not pressed)
+                self.captureCallbackInvocations += 1
+                if self.captureCallbackInvocations % 5000 == 1 {
+                    NSLog("[AudioService] C++ callback fired but captureCallback is nil (invocation #%d)", self.captureCallbackInvocations)
+                }
+            }
         }
 
         if success {

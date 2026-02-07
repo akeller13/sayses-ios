@@ -78,10 +78,10 @@ func lookupAndLogin(emailOrUsername: String) async {
 
 ### 3. AlarmTriggerButton außerhalb NavigationStack
 **Problem:** Wenn AlarmTriggerButton außerhalb des NavigationStack platziert ist, bleibt er beim Navigieren zur ChannelView sichtbar (zwei Alarm-Buttons übereinander).
-**Lösung:** AlarmTriggerButton NUR auf ChannelListView (Kanalübersicht) zeigen, NICHT auf ChannelView (Detailseite).
+**Lösung:** AlarmTriggerButton auf BEIDEN Seiten via `.safeAreaInset(edge: .bottom)` einbinden. In ChannelListView mit `navigationPath.isEmpty`-Bedingung, damit er beim Navigieren zur Detailseite ausgeblendet wird. In ChannelView als eigener `.safeAreaInset`.
 **Betroffene Dateien:**
-- `SAYses/UI/Screens/ChannelList/ChannelListView.swift` - HAT AlarmTriggerButton
-- `SAYses/UI/Screens/Channel/ChannelView.swift` - HAT KEINEN AlarmTriggerButton
+- `SAYses/UI/Screens/ChannelList/ChannelListView.swift` - HAT AlarmTriggerButton (nur wenn `navigationPath.isEmpty`)
+- `SAYses/UI/Screens/Channel/ChannelView.swift` - HAT AlarmTriggerButton (eigener safeAreaInset)
 
 ### 4. Menüs in Toolbar reagieren nicht
 **Problem:** profileMenu und optionsMenu in der Toolbar reagieren nicht auf Tippen.
@@ -117,6 +117,6 @@ Vor jedem Deployment prüfen:
 - [ ] OfflineStatusBanner hat `.allowsHitTesting(false)`
 - [ ] Menüs in Toolbar funktionieren (profileMenu, optionsMenu)
 - [ ] Login funktioniert ohne Loop
-- [ ] Nur EIN AlarmTriggerButton sichtbar (auf Kanalübersicht)
+- [ ] AlarmTriggerButton auf Kanalübersicht UND Kanaldetailseite sichtbar (je einer, nicht doppelt)
 - [ ] Navigation zwischen Screens funktioniert
 - [ ] PTT Button funktioniert auf Detailseite

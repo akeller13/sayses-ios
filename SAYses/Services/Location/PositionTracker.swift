@@ -3,17 +3,19 @@ import CoreLocation
 import UIKit
 import Combine
 
-/// Tracking-Modus mit Frequenz-Einstellungen
+/// Explizite GPS-Tracking-Modi
 enum TrackingMode: Equatable {
-    case idle                           // GPS aus
-    case background                     // Geschwindigkeitsbasiert (5min - 30sek)
-    case active(frequencySeconds: Int)  // Feste Frequenz (z.B. 10s für Alarm)
+    case idle                              // GPS aus
+    case normal                            // Geschwindigkeitsbasiert (Hintergrund-Tracking)
+    case dispatcher(frequencySeconds: Int)  // Dispatcher-Request aktiv
+    case alarm(frequencySeconds: Int)       // Alarm aktiv
 
     var description: String {
         switch self {
         case .idle: return "idle"
-        case .background: return "background"
-        case .active(let freq): return "active(\(freq)s)"
+        case .normal: return "normal"
+        case .dispatcher(let freq): return "dispatcher(\(freq)s)"
+        case .alarm(let freq): return "alarm(\(freq)s)"
         }
     }
 }
@@ -89,8 +91,7 @@ class PositionTracker: ObservableObject {
 
     private var config = PositionTrackerConfig()
     private var speedFrequency = SpeedBasedFrequency()
-    private var baseMode: TrackingMode = .idle          // User-Einstellung
-    private var boostMode: TrackingMode? = nil          // Alarm/Dispatcher Override
+    private(set) var backgroundEnabled: Bool = false
     private var activeSessionId: String?
     private var subdomain: String?
     private var certificateHash: String?
@@ -99,14 +100,13 @@ class PositionTracker: ObservableObject {
 
     private var lastPosition: CLLocation?
     private var lastPositionTime: Date?
-    private var lastBufferedTime: Date?  // Zeit der letzten gepufferten Position
+    private var lastBufferedTime: Date?
     private var lastSentPosition: CLLocation?
     private var sendTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
 
     /// Callback for location updates (for UPDATE_ALARM tree messages, local DB updates, etc.)
-    /// Called on the main thread when a position passes all filters and is buffered
     private var onLocationUpdate: ((CLLocation, String) -> Void)?
 
     // MARK: - Init
@@ -115,45 +115,25 @@ class PositionTracker: ObservableObject {
         self.locationService = locationService
         self.apiClient = apiClient
 
-        // Clear any stale buffer data from previous app sessions
         Task {
             await clearStaleBufferData()
         }
     }
 
-    /// Clear all buffer data from previous sessions to prevent position floods
     private func clearStaleBufferData() async {
         await buffer.clearAllSessions()
         NSLog("[PositionTracker] Cleared stale buffer data on init")
     }
 
-    // MARK: - Effective Mode
+    // MARK: - Public API
 
-    /// Aktueller effektiver Modus (Boost hat Priorität)
-    var effectiveMode: TrackingMode {
-        boostMode ?? baseMode
-    }
-
-    // MARK: - User Settings
-
-    /// User aktiviert/deaktiviert Standortfreigabe
-    func setEnabled(_ enabled: Bool, subdomain: String, certificateHash: String) {
+    /// Hintergrund-Tracking aktivieren/deaktivieren (Fleet Tracking)
+    /// Aufrufer muss danach reevaluateGPSPriority() aufrufen.
+    func setBackgroundEnabled(_ enabled: Bool, subdomain: String, certificateHash: String) {
         self.subdomain = subdomain
         self.certificateHash = certificateHash
-
-        if enabled {
-            baseMode = .background
-            if boostMode == nil {
-                startTracking(sessionId: "tracking_\(certificateHash.prefix(8))")
-            }
-            print("[PositionTracker] Background tracking enabled")
-        } else {
-            baseMode = .idle
-            if boostMode == nil {
-                stopTracking()
-            }
-            print("[PositionTracker] Background tracking disabled")
-        }
+        backgroundEnabled = enabled
+        NSLog("[PositionTracker] backgroundEnabled = %@", enabled ? "true" : "false")
     }
 
     /// Basis-Intervall für geschwindigkeitsbasiertes Tracking aktualisieren
@@ -162,163 +142,134 @@ class PositionTracker: ObservableObject {
         NSLog("[PositionTracker] Updated base interval to %ds", interval)
     }
 
-    /// Prüfen ob Hintergrund-Tracking aktiv ist
+    /// Für Abwärtskompatibilität
     var isBackgroundEnabled: Bool {
-        baseMode == .background
+        backgroundEnabled
     }
 
-    // MARK: - Boost (Alarm/Dispatcher)
+    // MARK: - Mode Setters
 
-    /// Alarm oder Dispatcher aktiviert Boost mit hoher Frequenz
-    /// - Parameters:
-    ///   - sessionId: Session-ID für GPS-Upload (z.B. "alarm_123" oder "dispatcher_456")
-    ///   - frequencySeconds: Tracking-Frequenz in Sekunden (Standard: 10)
-    ///   - subdomain: Tenant-Subdomain
-    ///   - certificateHash: Benutzer-Zertifikat-Hash
-    ///   - onUpdate: Optional callback für jede akzeptierte Position (für UPDATE_ALARM, lokale DB, etc.)
-    func boost(sessionId: String, frequencySeconds: Int = 10, subdomain: String, certificateHash: String, onUpdate: ((CLLocation, String) -> Void)? = nil) {
+    /// Alarm-Modus aktivieren (höchste Priorität)
+    func setAlarmMode(sessionId: String, frequencySeconds: Int, subdomain: String, certificateHash: String, onUpdate: ((CLLocation, String) -> Void)? = nil) {
         self.subdomain = subdomain
         self.certificateHash = certificateHash
-        self.onLocationUpdate = onUpdate
-
-        // Cancel any pending flush from previous boost to prevent concurrent sends
-        flushTask?.cancel()
-
-        let previousBoost = boostMode
-        let previousSessionId = activeSessionId
-        boostMode = .active(frequencySeconds: frequencySeconds)
-        activeSessionId = sessionId
-
-        NSLog("[PositionTracker] Boost activated: session=%@, frequency=%ds, subdomain=%@, previousSession=%@", sessionId, frequencySeconds, subdomain, previousSessionId ?? "nil")
-        print("[PositionTracker] Boost activated: session=\(sessionId), frequency=\(frequencySeconds)s")
-
-        // Falls noch nicht tracking, starten
-        if state == .idle {
-            startTracking(sessionId: sessionId)
-        } else if previousBoost == nil {
-            // Switching from background to boost - session ID already set above
-            // Send current position immediately
-            if let location = lastPosition {
-                Task {
-                    await bufferPosition(location)
-                }
-            }
-        } else if previousSessionId != sessionId {
-            // Switching between boost sessions (different alarm) - clear old session buffer
-            NSLog("[PositionTracker] Switching boost session from %@ to %@", previousSessionId ?? "nil", sessionId)
-            if let oldSession = previousSessionId {
-                Task {
-                    await buffer.clearAll(sessionId: oldSession)
-                    NSLog("[PositionTracker] Cleared old session buffer: %@", oldSession)
-                }
-            }
-            // Send current position for new session
-            if let location = lastPosition {
-                Task {
-                    await bufferPosition(location)
-                }
-            }
-        }
-
-        updateEffectiveFrequency()
+        transitionTo(newMode: .alarm(frequencySeconds: frequencySeconds), sessionId: sessionId, onUpdate: onUpdate)
     }
 
-    /// Boost beenden (Alarm/Dispatcher abgeschlossen)
-    func endBoost() {
-        guard boostMode != nil else { return }
-
-        let previousSessionId = activeSessionId
-        boostMode = nil
-        onLocationUpdate = nil  // Clear callback when boost ends
-
-        // CRITICAL: Cancel sendTask FIRST to prevent concurrent sends with flushBuffer
-        sendTask?.cancel()
-        sendTask = nil
-
-        // Cancel any previous flush task to prevent concurrent flushes
-        flushTask?.cancel()
-
-        NSLog("[PositionTracker] Boost ended, previousSession=%@, baseMode=%@", previousSessionId ?? "nil", baseMode.description)
-        print("[PositionTracker] Boost ended")
-
-        // Try to flush remaining positions for the ending boost session
-        // Use a tracked task so it can be cancelled if a new boost starts
-        if let sessionId = previousSessionId {
-            flushTask = Task {
-                await self.flushBuffer(sessionId: sessionId)
-            }
-        }
-
-        // Zurück zu baseMode
-        if baseMode == .background {
-            activeSessionId = "tracking_\(certificateHash?.prefix(8) ?? "unknown")"
-            updateEffectiveFrequency()
-            // Restart send loop for background mode with new session
-            startSendLoop()
-            print("[PositionTracker] Returning to background mode")
-        } else {
-            stopTracking()
-        }
+    /// Dispatcher-Modus aktivieren (mittlere Priorität)
+    func setDispatcherMode(sessionId: String, frequencySeconds: Int, subdomain: String, certificateHash: String) {
+        self.subdomain = subdomain
+        self.certificateHash = certificateHash
+        transitionTo(newMode: .dispatcher(frequencySeconds: frequencySeconds), sessionId: sessionId)
     }
 
-    // MARK: - Internal Tracking Control
-
-    private func startTracking(sessionId: String) {
-        guard state == .idle else {
-            print("[PositionTracker] Already tracking")
+    /// Normal-Modus aktivieren (Hintergrund-Tracking, niedrigste Priorität)
+    func setNormalMode() {
+        guard let hash = certificateHash else {
+            NSLog("[PositionTracker] setNormalMode: no certificateHash stored")
             return
         }
-
-        activeSessionId = sessionId
-        state = .tracking
-        mode = effectiveMode
-        lastBufferedTime = nil  // Reset für sofortige erste Position
-
-        print("[PositionTracker] Starting tracking: session=\(sessionId), mode=\(mode.description)")
-
-        // Kontinuierliches GPS-Tracking starten (einzige zuverlässige Methode auf iOS im Hintergrund)
-        locationService.startContinuousTracking { [weak self] location in
-            self?.handleLocationUpdate(location)
-        }
-
-        // Send-Loop starten
-        startSendLoop()
-
-        updateEffectiveFrequency()
+        let sessionId = "tracking_\(hash.prefix(8))"
+        transitionTo(newMode: .normal, sessionId: sessionId)
     }
 
-    private func stopTracking() {
+    /// Tracking komplett stoppen
+    func stopTracking() {
         guard state != .idle else { return }
 
-        NSLog("[PositionTracker] Stopping tracking, state=%@", String(describing: state))
-        print("[PositionTracker] Stopping tracking")
+        NSLog("[PositionTracker] stopTracking: mode=%@, state=%@, session=%@",
+              mode.description, String(describing: state), activeSessionId ?? "nil")
 
-        locationService.stopContinuousTracking()
+        // Flush remaining positions for current session
+        let previousSessionId = activeSessionId
         sendTask?.cancel()
+        sendTask = nil
         retryTask?.cancel()
         flushTask?.cancel()
+
+        if let sessionId = previousSessionId {
+            flushTask = Task { await self.flushBuffer(sessionId: sessionId) }
+        }
+
+        locationService.stopContinuousTracking()
 
         state = .idle
         mode = .idle
         activeSessionId = nil
+        onLocationUpdate = nil
         lastPosition = nil
         lastPositionTime = nil
         lastBufferedTime = nil
         lastSentPosition = nil
+
+        NSLog("[PositionTracker] GPS tracking STOPPED")
+    }
+
+    // MARK: - Mode Transition
+
+    private func transitionTo(newMode: TrackingMode, sessionId: String, onUpdate: ((CLLocation, String) -> Void)? = nil) {
+        // Same mode and same session → no-op (update callback if provided)
+        if mode == newMode && activeSessionId == sessionId {
+            if let callback = onUpdate {
+                self.onLocationUpdate = callback
+            }
+            return
+        }
+
+        let previousMode = mode
+        let previousSessionId = activeSessionId
+
+        NSLog("[PositionTracker] Transition: %@ (%@) → %@ (%@)",
+              previousMode.description, previousSessionId ?? "nil",
+              newMode.description, sessionId)
+
+        // Cancel current send operations
+        sendTask?.cancel()
+        sendTask = nil
+        retryTask?.cancel()
+        retryTask = nil
+
+        // Flush remaining positions for old session (if different session)
+        if let oldSession = previousSessionId, oldSession != sessionId {
+            flushTask?.cancel()
+            flushTask = Task { await self.flushBuffer(sessionId: oldSession) }
+        }
+
+        // Update mode and session
+        mode = newMode
+        activeSessionId = sessionId
+        lastBufferedTime = nil  // Allow immediate first position for new mode
+
+        // Update callback: use provided callback, or keep existing if same session
+        if let callback = onUpdate {
+            self.onLocationUpdate = callback
+        } else if previousSessionId != sessionId {
+            self.onLocationUpdate = nil
+        }
+
+        // Start location tracking if not running
+        if state == .idle {
+            state = .tracking
+            locationService.startContinuousTracking { [weak self] location in
+                self?.handleLocationUpdate(location)
+            }
+        } else {
+            state = .tracking
+        }
+
+        // Start send loop for new session
+        startSendLoop()
+        updateEffectiveFrequency()
     }
 
     // MARK: - Continuous Location Updates (iOS Background-compatible)
 
-    /// Handle incoming location update from LocationService
-    /// Uses time-based filtering instead of timers (timers don't work in iOS background)
     private func handleLocationUpdate(_ location: CLLocation) {
-        // Nicht verarbeiten wenn idle
         guard state != .idle else { return }
 
         // Geschwindigkeit aktualisieren für Frequenz-Berechnung (nur bei signifikanter Änderung)
         if location.speed >= 0 {
             let speedDelta = abs(location.speed - currentSpeed)
-            // Only update UI if speed changed by more than 1 km/h (0.28 m/s)
             if speedDelta > 0.28 {
                 DispatchQueue.main.async {
                     self.currentSpeed = location.speed
@@ -332,17 +283,17 @@ class PositionTracker: ObservableObject {
         if let lastTime = lastBufferedTime {
             let elapsed = Date().timeIntervalSince(lastTime)
             if elapsed < interval {
-                // Noch nicht genug Zeit vergangen, Position überspringen
                 return
             }
         }
 
         // Position verarbeiten
-        NSLog("[PositionTracker] Processing position: %.6f, %.6f (accuracy: %.1fm, speed: %.1f km/h, interval: %.0fs)",
+        NSLog("[PositionTracker] Processing position: %.6f, %.6f (accuracy: %.1fm, speed: %.1f km/h, mode: %@, interval: %.0fs)",
               location.coordinate.latitude,
               location.coordinate.longitude,
               location.horizontalAccuracy,
               location.speed >= 0 ? location.speed * 3.6 : -1,
+              mode.description,
               interval)
 
         lastPosition = location
@@ -356,7 +307,6 @@ class PositionTracker: ObservableObject {
             }
         }
 
-        // Position puffern (async)
         Task {
             await bufferPosition(location)
         }
@@ -373,19 +323,20 @@ class PositionTracker: ObservableObject {
         await buffer.save(sessionId: sessionId, position: positionData)
         await updatePendingCount()
 
-        NSLog("[PositionTracker] Position buffered: lat=%f, lon=%f, session=%@", location.coordinate.latitude, location.coordinate.longitude, sessionId)
-        print("[PositionTracker] Position buffered: \(location.coordinate.latitude), \(location.coordinate.longitude) (speed: \(String(format: "%.1f", location.speed * 3.6)) km/h)")
+        NSLog("[PositionTracker] Position buffered: session=%@, mode=%@", sessionId, mode.description)
     }
 
     // MARK: - Frequency Management
 
     private func currentFrequency() -> TimeInterval {
-        switch effectiveMode {
+        switch mode {
         case .idle:
             return .infinity
-        case .background:
+        case .normal:
             return speedFrequency.frequency(forSpeed: currentSpeed)
-        case .active(let seconds):
+        case .dispatcher(let seconds):
+            return TimeInterval(seconds)
+        case .alarm(let seconds):
             return TimeInterval(seconds)
         }
     }
@@ -396,17 +347,31 @@ class PositionTracker: ObservableObject {
 
     // MARK: - Send Loop
 
+    private var sendLoopIteration: Int = 0
+
     private func startSendLoop() {
+        NSLog("[PositionTracker] startSendLoop: mode=%@, state=%@, session=%@",
+              mode.description, String(describing: state), activeSessionId ?? "nil")
+        sendLoopIteration = 0
         sendTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self = self, self.state == .tracking || self.state == .sending else { break }
+                guard let self = self else { break }
+
+                self.sendLoopIteration += 1
+                if self.sendLoopIteration % 10 == 1 {
+                    let pending = await self.buffer.count(sessionId: self.activeSessionId ?? "")
+                    NSLog("[PositionTracker] Send loop heartbeat #%d — mode=%@, session=%@, state=%@, pending=%d, freq=%.0fs",
+                          self.sendLoopIteration, self.mode.description,
+                          self.activeSessionId ?? "nil", String(describing: self.state),
+                          pending, self.currentFrequency())
+                }
 
                 await self.sendBatch()
 
-                // Dynamische Wartezeit basierend auf Frequenz
-                let waitTime = min(self.currentFrequency(), 30) // Max 30 Sekunden warten
+                let waitTime = min(self.currentFrequency(), 30)
                 try? await Task.sleep(nanoseconds: UInt64(waitTime * 1_000_000_000))
             }
+            NSLog("[PositionTracker] Send loop EXITED (cancelled=%@)", Task.isCancelled ? "YES" : "NO")
         }
     }
 
@@ -414,26 +379,26 @@ class PositionTracker: ObservableObject {
         guard let sessionId = activeSessionId,
               let subdomain = subdomain,
               let certificateHash = certificateHash else {
-            NSLog("[PositionTracker] sendBatch: missing params - sessionId=%@, subdomain=%@, certHash=%@",
-                  activeSessionId ?? "nil", self.subdomain ?? "nil", self.certificateHash?.prefix(8).description ?? "nil")
             return
         }
 
-        // Positionen aus Buffer holen
         let buffered = await buffer.fetch(sessionId: sessionId, limit: config.batchSize)
-        guard !buffered.isEmpty else {
-            NSLog("[PositionTracker] sendBatch: buffer empty for session %@", sessionId)
-            return
-        }
+        guard !buffered.isEmpty else { return }
 
         let positions = buffered.map { $0.toPositionData() }
+
+        // Check cancellation BEFORE API call (mode transition may have cancelled our task)
+        guard !Task.isCancelled else {
+            NSLog("[PositionTracker] sendBatch: cancelled, releasing %d positions for flushBuffer", buffered.count)
+            await buffer.resetSendingFlag(buffered)
+            return
+        }
 
         await MainActor.run {
             self.state = .sending
         }
 
-        NSLog("[PositionTracker] Sending batch of %d positions for %@", positions.count, sessionId)
-        print("[PositionTracker] Sending batch of \(positions.count) positions for \(sessionId)")
+        NSLog("[PositionTracker] Sending %d positions for %@ (mode=%@)", positions.count, sessionId, mode.description)
 
         do {
             try await apiClient.uploadGPSPositions(
@@ -443,11 +408,9 @@ class PositionTracker: ObservableObject {
                 positions: positions
             )
 
-            // Erfolg: Positionen löschen
             await buffer.delete(buffered)
             await updatePendingCount()
 
-            // Letzte gesendete Position merken
             if let lastBuffered = buffered.last {
                 lastSentPosition = CLLocation(
                     latitude: lastBuffered.latitude,
@@ -462,42 +425,68 @@ class PositionTracker: ObservableObject {
             }
 
             NSLog("[PositionTracker] Batch sent successfully")
-            print("[PositionTracker] Batch sent successfully")
 
         } catch {
-            NSLog("[PositionTracker] Send failed: %@", error.localizedDescription)
-            print("[PositionTracker] Send failed: \(error)")
+            // CRITICAL: If our task was cancelled (mode transition), do NOT scheduleRetry!
+            // scheduleRetry would set state = .retrying, which kills the NEW send loop.
+            if Task.isCancelled {
+                NSLog("[PositionTracker] sendBatch: API call cancelled (mode transition), releasing %d positions", buffered.count)
+                await buffer.resetSendingFlag(buffered)
+                return
+            }
 
-            // Reset isSending flag so positions can be retried
+            NSLog("[PositionTracker] Send failed: %@", error.localizedDescription)
+
+            // HTTP 404 = session no longer exists on backend → discard positions, don't retry
+            if case APIError.httpError(statusCode: 404) = error {
+                NSLog("[PositionTracker] 404 — session gone, discarding %d positions", buffered.count)
+                await buffer.delete(buffered)
+                await MainActor.run {
+                    self.lastError = nil
+                    self.state = .tracking
+                }
+                return
+            }
+
+            // Transient error → reset flag for retry
             await buffer.resetSendingFlag(buffered)
 
             await MainActor.run {
                 self.lastError = error.localizedDescription
             }
 
-            // Retry nach Verzögerung
             await scheduleRetry()
         }
     }
 
     private func scheduleRetry() async {
+        // Don't schedule retry if task is cancelled (mode transition happened)
+        guard !Task.isCancelled else {
+            NSLog("[PositionTracker] scheduleRetry: skipped (task cancelled)")
+            return
+        }
+
         await MainActor.run {
             self.state = .retrying
         }
 
-        print("[PositionTracker] Retrying in \(config.retryDelay)s")
+        NSLog("[PositionTracker] scheduleRetry: will retry in %.0fs, session=%@",
+              config.retryDelay, activeSessionId ?? "nil")
 
         retryTask = Task { [weak self] in
             guard let self = self else { return }
 
             try? await Task.sleep(nanoseconds: UInt64(self.config.retryDelay * 1_000_000_000))
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                NSLog("[PositionTracker] scheduleRetry: cancelled during wait")
+                return
+            }
 
             await MainActor.run {
                 if self.state == .retrying {
+                    NSLog("[PositionTracker] scheduleRetry: restarting send loop")
                     self.state = .tracking
-                    // Restart the send loop — it exited when state became .retrying
                     self.startSendLoop()
                 }
             }
@@ -505,16 +494,14 @@ class PositionTracker: ObservableObject {
     }
 
     private func flushBuffer(sessionId: String) async {
-        // Check for early cancellation
         guard !Task.isCancelled else {
-            NSLog("[PositionTracker] flushBuffer: cancelled before start, clearing buffer for %@", sessionId)
+            NSLog("[PositionTracker] flushBuffer: cancelled, clearing buffer for %@", sessionId)
             await buffer.clearAll(sessionId: sessionId)
             return
         }
 
         guard let subdomain = subdomain,
               let certificateHash = certificateHash else {
-            NSLog("[PositionTracker] flushBuffer: missing credentials, clearing buffer")
             await buffer.clearAll(sessionId: sessionId)
             return
         }
@@ -541,19 +528,24 @@ class PositionTracker: ObservableObject {
 
             } catch {
                 NSLog("[PositionTracker] flushBuffer: send failed - %@", error.localizedDescription)
-                // Reset isSending flag so positions can be retried
+
+                if case APIError.httpError(statusCode: 404) = error {
+                    NSLog("[PositionTracker] flushBuffer: 404 — session gone, discarding")
+                    await buffer.delete(buffered)
+                    break
+                }
+
                 await buffer.resetSendingFlag(buffered)
                 attempts += 1
                 if attempts < 3 && !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s warten
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
                 }
             }
         }
 
-        // Clear remaining positions (either couldn't send or task was cancelled)
         let remaining = await buffer.count(sessionId: sessionId)
         if remaining > 0 {
-            NSLog("[PositionTracker] flushBuffer: clearing %d remaining positions for %@", remaining, sessionId)
+            NSLog("[PositionTracker] flushBuffer: clearing %d remaining for %@", remaining, sessionId)
             await buffer.clearAll(sessionId: sessionId)
         }
     }

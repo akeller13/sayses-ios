@@ -142,8 +142,8 @@ class AlarmSoundPlayer: ObservableObject {
         currentSound = nil
         repetitionCount = 0
 
-        // Deactivate audio session
-        deactivateAudioSession()
+        // Restore audio session (without duckOthers, keep .playAndRecord)
+        restoreAudioSession()
     }
 
     /// Play sound once for preview (in settings)
@@ -260,20 +260,23 @@ class AlarmSoundPlayer: ObservableObject {
     private func configureAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            // Use playback category with duckOthers to lower other audio
-            try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+            // Keep .playAndRecord to not break audio capture — just add .duckOthers
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .duckOthers])
             try session.setActive(true)
-            print("[AlarmSoundPlayer] Audio session configured")
+            print("[AlarmSoundPlayer] Audio session configured (playAndRecord preserved)")
         } catch {
             print("[AlarmSoundPlayer] Failed to configure audio session: \(error)")
         }
     }
 
-    private func deactivateAudioSession() {
+    private func restoreAudioSession() {
         do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            let session = AVAudioSession.sharedInstance()
+            // Restore original session without duckOthers
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+            print("[AlarmSoundPlayer] Audio session restored")
         } catch {
-            print("[AlarmSoundPlayer] Failed to deactivate audio session: \(error)")
+            print("[AlarmSoundPlayer] Failed to restore audio session: \(error)")
         }
     }
 }

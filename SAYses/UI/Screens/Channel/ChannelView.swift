@@ -22,6 +22,11 @@ struct ChannelView: View {
     /// Tracks whether leaving should switch to dispatcher tab
     @State private var leaveToDispatcher = false
 
+    // Alarm state
+    @State private var showAlarmCountdown = false
+    @State private var showPostAlarmRecording = false
+    @State private var remainingRecordingTime = 0
+
     init(channel: Channel, mumbleService: MumbleService) {
         self.channel = channel
         self.mumbleService = mumbleService
@@ -149,6 +154,55 @@ struct ChannelView: View {
         .sheet(isPresented: $showAudioCast) {
             AudioCastScreen(channel: channel, mumbleService: mumbleService)
         }
+        .safeAreaInset(edge: .bottom) {
+            if mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized {
+                AlarmTriggerButton(
+                    isEnabled: !mumbleService.hasOwnOpenAlarm,
+                    holdDuration: Double(mumbleService.alarmSettings.alarmHoldDuration),
+                    onHoldStart: {
+                        mumbleService.startAlarmWarmUp()
+                    },
+                    onHoldComplete: {
+                        mumbleService.startVoiceRecording()
+                        showAlarmCountdown = true
+                    },
+                    onHoldCancel: {
+                        mumbleService.cancelAlarmWarmUp()
+                    }
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
+        }
+        .fullScreenCover(isPresented: $showAlarmCountdown) {
+            AlarmCountdownDialog(
+                countdownDuration: mumbleService.alarmSettings.alarmCountdownDuration,
+                onCancel: {
+                    showAlarmCountdown = false
+                    mumbleService.cancelVoiceRecording()
+                    mumbleService.cancelAlarmWarmUp()
+                },
+                onTriggerNow: { elapsedSeconds in
+                    showAlarmCountdown = false
+                    triggerAlarmAndShowPostRecording(elapsedCountdownSeconds: elapsedSeconds)
+                },
+                onComplete: {
+                    showAlarmCountdown = false
+                    triggerAlarmAndShowPostRecording(elapsedCountdownSeconds: mumbleService.alarmSettings.alarmCountdownDuration)
+                }
+            )
+        }
+        .fullScreenCover(isPresented: $showPostAlarmRecording) {
+            PostAlarmRecordingDialog(
+                remainingSeconds: remainingRecordingTime,
+                onSubmit: {
+                    showPostAlarmRecording = false
+                    Task {
+                        await mumbleService.submitVoiceRecording()
+                    }
+                }
+            )
+        }
         .task {
             await viewModel.joinChannel()
         }
@@ -181,6 +235,27 @@ struct ChannelView: View {
             }
         } message: {
             Text("Möchtest du den Kanal wirklich verlassen?")
+        }
+    }
+
+    // MARK: - Alarm Helpers
+
+    private func triggerAlarmAndShowPostRecording(elapsedCountdownSeconds: Int) {
+        guard !showPostAlarmRecording else { return }
+
+        let totalVoiceNoteDuration = mumbleService.alarmSettings.alarmVoiceNoteDuration
+        let remaining = totalVoiceNoteDuration - elapsedCountdownSeconds
+
+        if remaining > 0 {
+            remainingRecordingTime = remaining
+            showPostAlarmRecording = true
+        }
+
+        Task {
+            await mumbleService.triggerAlarmWithoutStoppingRecording()
+            if remaining <= 0 {
+                await mumbleService.submitVoiceRecording()
+            }
         }
     }
 
