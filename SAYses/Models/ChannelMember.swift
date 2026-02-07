@@ -38,12 +38,15 @@ struct ChannelMember: Codable, Identifiable {
     var positionAge: String? {
         guard let timestamp = positionTimestamp else { return nil }
 
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var date = formatter.date(from: timestamp)
+        // Backend sends Python isoformat without timezone (e.g. "2026-02-07T19:09:57.123456")
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = TimeZone(identifier: "UTC")
+        df.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
+        var date = df.date(from: timestamp)
         if date == nil {
-            formatter.formatOptions = [.withInternetDateTime]
-            date = formatter.date(from: timestamp)
+            df.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+            date = df.date(from: timestamp)
         }
         guard let posDate = date else { return nil }
 
