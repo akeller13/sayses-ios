@@ -19,6 +19,7 @@ class AudioService: ObservableObject {
     // Callbacks
     private var captureCallback: ((UnsafePointer<Int16>, Int) -> Void)?
     private var captureCallbackInvocations: Int = 0
+    private var lastCaptureCallbackTime: Date?
     private var playbackCallback: ((UnsafeMutablePointer<Int16>, Int) -> Int)?
 
     // Level monitoring task
@@ -94,6 +95,7 @@ class AudioService: ObservableObject {
 
         let success = engine.startCapture { [weak self] data, frames in
             guard let self = self else { return }
+            self.lastCaptureCallbackTime = Date()
             self.captureCallback?(data, frames)
         }
 
@@ -128,10 +130,23 @@ class AudioService: ObservableObject {
         // Store the callback - this is called for each audio buffer
         captureCallback = callback
 
-        // If already capturing, just update the callback (it will be used by existing capture)
+        // If already capturing, check if C++ engine is still alive
         if isCapturing {
-            NSLog("[AudioService] Already capturing - callback updated")
-            return
+            let engineAlive = lastCaptureCallbackTime.map { Date().timeIntervalSince($0) < 2.0 } ?? false
+            if engineAlive {
+                NSLog("[AudioService] Already capturing - callback updated")
+                return
+            }
+
+            // C++ engine appears dead (no callbacks for >2s) — rebuild
+            NSLog("[AudioService] C++ engine appears dead (lastCallback=%@) — rebuilding engine",
+                  lastCaptureCallbackTime.map { String(format: "%.1fs ago", Date().timeIntervalSince($0)) } ?? "never")
+            audioEngine?.stopCapture()
+            audioEngine = nil
+            setupAudioEngine()
+            isCapturing = false
+            lastCaptureCallbackTime = nil
+            // Fall through to normal start below
         }
 
         guard let engine = audioEngine else {
@@ -141,6 +156,7 @@ class AudioService: ObservableObject {
 
         let success = engine.startCapture { [weak self] data, frames in
             guard let self = self else { return }
+            self.lastCaptureCallbackTime = Date()
             // Call the current callback (may be updated later)
             if self.captureCallback != nil {
                 self.captureCallbackInvocations += 1

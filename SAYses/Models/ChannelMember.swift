@@ -34,6 +34,35 @@ struct ChannelMember: Codable, Identifiable {
         latitude != nil && longitude != nil && positionTimestamp != nil
     }
 
+    /// Relative age of the last position (e.g. "2h 35min", "3T 5h 12min")
+    var positionAge: String? {
+        guard let timestamp = positionTimestamp else { return nil }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var date = formatter.date(from: timestamp)
+        if date == nil {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: timestamp)
+        }
+        guard let posDate = date else { return nil }
+
+        let seconds = Int(Date().timeIntervalSince(posDate))
+        guard seconds >= 0 else { return nil }
+
+        let days = seconds / 86400
+        let hours = (seconds % 86400) / 3600
+        let minutes = (seconds % 3600) / 60
+
+        if days > 0 {
+            return "\(days)T \(hours)h \(minutes)min"
+        } else if hours > 0 {
+            return "\(hours)h \(minutes)min"
+        } else {
+            return "\(minutes)min"
+        }
+    }
+
     enum CodingKeys: String, CodingKey {
         case username
         case firstName = "first_name"

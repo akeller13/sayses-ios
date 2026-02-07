@@ -59,34 +59,46 @@ struct MembersSheet: View {
 
                     Spacer()
 
-                    // GPS position indicator (tappable)
-                    if entry.member.hasRecentPosition {
-                        Button {
-                            selectedMemberForMap = entry.member
-                        } label: {
-                            Image(systemName: "location.fill")
-                                .foregroundStyle(.blue)
-                                .font(.caption)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    // Right side: icons + position age
+                    VStack(alignment: .trailing, spacing: 2) {
+                        HStack(spacing: 6) {
+                            // GPS position indicator (tappable)
+                            if entry.member.hasRecentPosition {
+                                Button {
+                                    selectedMemberForMap = entry.member
+                                } label: {
+                                    Image(systemName: "location.fill")
+                                        .foregroundStyle(.blue)
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.plain)
+                            }
 
-                    // Mute/deaf icons for online users
-                    if let user = entry.onlineUser {
-                        if user.isMuted {
-                            Image(systemName: "mic.slash.fill")
-                                .foregroundStyle(.red)
+                            // Mute/deaf icons for online users
+                            if let user = entry.onlineUser {
+                                if user.isMuted {
+                                    Image(systemName: "mic.slash.fill")
+                                        .foregroundStyle(.red)
+                                }
+                                if user.isDeafened {
+                                    Image(systemName: "speaker.slash.fill")
+                                        .foregroundStyle(.orange)
+                                }
+                            }
+
+                            // Online/offline indicator
+                            Circle()
+                                .fill(entry.onlineUser != nil ? Color.green : Color.gray.opacity(0.4))
+                                .frame(width: 10, height: 10)
                         }
-                        if user.isDeafened {
-                            Image(systemName: "speaker.slash.fill")
-                                .foregroundStyle(.orange)
+
+                        // Position age
+                        if let age = entry.member.positionAge {
+                            Text(age)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                     }
-
-                    // Online/offline indicator
-                    Circle()
-                        .fill(entry.onlineUser != nil ? Color.green : Color.gray.opacity(0.4))
-                        .frame(width: 10, height: 10)
                 }
             }
             .navigationTitle(channel.name)

@@ -689,10 +689,17 @@ struct ChannelListView: View {
                         Button {
                             selectedTab = .dispatcher
                         } label: {
-                            Text(mumbleService.alarmSettings.dispatcherAlias)
-                                .font(.title2)
-                                .fontWeight(selectedTab == .dispatcher ? .bold : .regular)
-                                .foregroundStyle(selectedTab == .dispatcher ? .primary : .secondary)
+                            HStack(spacing: 4) {
+                                if mumbleService.isDispatcherModeActive {
+                                    Circle()
+                                        .fill(Color(red: 0xF5/255.0, green: 0x7C/255.0, blue: 0x00/255.0))
+                                        .frame(width: 8, height: 8)
+                                }
+                                Text(mumbleService.alarmSettings.dispatcherAlias)
+                                    .font(.title2)
+                                    .fontWeight(selectedTab == .dispatcher ? .bold : .regular)
+                                    .foregroundStyle(selectedTab == .dispatcher ? .primary : .secondary)
+                            }
                         }
                         .buttonStyle(.plain)
                     }

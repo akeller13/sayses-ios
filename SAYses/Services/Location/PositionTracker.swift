@@ -309,6 +309,7 @@ class PositionTracker: ObservableObject {
 
         Task {
             await bufferPosition(location)
+            await sendBatch()
         }
     }
 

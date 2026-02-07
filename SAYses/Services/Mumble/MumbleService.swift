@@ -158,6 +158,12 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         return openAlarms.contains { $0.triggeredByUsername.lowercased() == usernameLower }
     }
 
+    /// Whether GPS is currently in dispatcher mode (active dispatcher request being tracked)
+    var isDispatcherModeActive: Bool {
+        if case .dispatcher = positionTracker.mode { return true }
+        return false
+    }
+
     private var audioLevelObserver: NSKeyValueObservation?
     private var voiceDetectedObserver: NSKeyValueObservation?
     private var cancellables = Set<AnyCancellable>()
@@ -1777,10 +1783,8 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             alarmTriggerState = .triggered(alarmId: alarmId)
         }
 
-        // 3. Start position tracking if we have a location
-        if location != nil {
-            startPositionTracking(alarmId: alarmId)
-        }
+        // 3. Start position tracking (reevaluateGPSPriority decides mode)
+        startPositionTracking(alarmId: alarmId)
 
         // 4. If we only got network location, wait for GPS fix
         if locationType == LocationType.network.rawValue {
@@ -1882,13 +1886,8 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             alarmTriggerState = .triggered(alarmId: alarmId)
         }
 
-        // 3. Start position tracking if we have a location
-        if location != nil {
-            print("[MumbleService] Starting position tracking for alarm \(alarmId)")
-            startPositionTracking(alarmId: alarmId)
-        } else {
-            print("[MumbleService] No location available, skipping position tracking")
-        }
+        // 3. Start position tracking (reevaluateGPSPriority decides mode)
+        startPositionTracking(alarmId: alarmId)
 
         // 4. If we only got network location, wait for GPS fix
         if locationType == LocationType.network.rawValue {
@@ -2075,68 +2074,15 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
     /// Start continuous position tracking for alarm using PositionTracker
     private func startPositionTracking(alarmId: String, backendAlarmId: String? = nil) {
-        // Don't start if already tracking this same alarm
-        if positionTrackingAlarmId == alarmId && positionTracker.state != .idle {
-            print("[MumbleService] Already tracking position for alarm \(alarmId)")
-            return
-        }
-
-        // If tracking a different alarm, the transition is handled automatically by setAlarmMode()
-        if positionTrackingAlarmId != alarmId && positionTracker.state != .idle {
-            print("[MumbleService] Switching tracking from alarm \(positionTrackingAlarmId ?? "nil") to \(alarmId)")
-        }
-
         let resolvedBackendId = backendAlarmId ?? alarmBackendId
-        print("[MumbleService] startPositionTracking called")
-        print("[MumbleService]   alarmId: \(alarmId)")
-        print("[MumbleService]   backendAlarmId param: \(backendAlarmId ?? "nil")")
-        print("[MumbleService]   alarmBackendId: \(self.alarmBackendId ?? "nil")")
-        print("[MumbleService]   resolvedBackendId: \(resolvedBackendId ?? "nil")")
+        NSLog("[MumbleService] startPositionTracking: alarmId=%@, backendId=%@", alarmId, resolvedBackendId ?? "nil")
 
-        guard let subdomain = tenantSubdomain,
-              let certificateHash = credentials?.certificateHash,
-              let backendId = resolvedBackendId else {
-            print("[MumbleService] Cannot start position tracking: missing credentials or backendId")
-            return
-        }
-
+        // Store alarm IDs so reevaluateGPSPriority can find the alarm
         positionTrackingAlarmId = alarmId
-        positionTrackingBackendId = backendId
+        positionTrackingBackendId = resolvedBackendId
 
-        // Use PositionTracker alarm mode for high-frequency tracking
-        // Session ID format: "alarm_{backendId}" for unified GPS endpoint
-        let alarmInterval = alarmSettings.alarmGpsInterval
-        positionTracker.setAlarmMode(
-            sessionId: "alarm_\(backendId)",
-            frequencySeconds: alarmInterval,
-            subdomain: subdomain,
-            certificateHash: certificateHash
-        ) { [weak self] location, _ in
-            guard let self = self else { return }
-
-            let locationType = self.locationService.getLocationType(for: location)
-
-            // Send UPDATE_ALARM via Tree Message (for real-time updates to other clients)
-            self.sendUpdateAlarm(
-                alarmId: alarmId,
-                latitude: location.coordinate.latitude,
-                longitude: location.coordinate.longitude,
-                locationType: locationType.rawValue
-            )
-
-            // Update local database immediately (like Android does)
-            Task { @MainActor in
-                self.alarmRepository?.updateLocation(
-                    alarmId: alarmId,
-                    latitude: location.coordinate.latitude,
-                    longitude: location.coordinate.longitude,
-                    locationType: locationType.rawValue
-                )
-                // Refresh openAlarms to trigger UI update
-                self.openAlarms = self.alarmRepository?.getOpenAlarms() ?? []
-            }
-            // Note: Backend upload is handled by PositionTracker automatically
-        }
+        // Delegate to central GPS priority decision
+        reevaluateGPSPriority()
     }
 
     /// Stop position tracking
@@ -2171,16 +2117,48 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         if hasOwnOpenAlarm,
            let ownAlarm = findOwnOpenAlarm() {
             let interval = alarmSettings.alarmGpsInterval
-            let sessionId = "alarm_\(ownAlarm.backendAlarmId ?? ownAlarm.alarmId)"
+            let backendId = ownAlarm.backendAlarmId ?? ownAlarm.alarmId
+            let sessionId = "alarm_\(backendId)"
             NSLog("[MumbleService] GPS priority: ALARM (interval=%ds, session=%@)", interval, sessionId)
+
+            positionTrackingAlarmId = ownAlarm.alarmId
+            positionTrackingBackendId = backendId
+
+            let alarmId = ownAlarm.alarmId
             positionTracker.setAlarmMode(
                 sessionId: sessionId,
                 frequencySeconds: interval,
                 subdomain: subdomain,
                 certificateHash: certificateHash
-            )
+            ) { [weak self] location, _ in
+                guard let self = self else { return }
+                let locationType = self.locationService.getLocationType(for: location)
+
+                // Send UPDATE_ALARM via Tree Message (for real-time updates to other clients)
+                self.sendUpdateAlarm(
+                    alarmId: alarmId,
+                    latitude: location.coordinate.latitude,
+                    longitude: location.coordinate.longitude,
+                    locationType: locationType.rawValue
+                )
+
+                // Update local database immediately
+                Task { @MainActor in
+                    self.alarmRepository?.updateLocation(
+                        alarmId: alarmId,
+                        latitude: location.coordinate.latitude,
+                        longitude: location.coordinate.longitude,
+                        locationType: locationType.rawValue
+                    )
+                    self.openAlarms = self.alarmRepository?.getOpenAlarms() ?? []
+                }
+            }
             return
         }
+
+        // No own alarm → clear alarm tracking IDs
+        positionTrackingAlarmId = nil
+        positionTrackingBackendId = nil
 
         // Priority 2: Open dispatcher request (status = "pending")
         if let openRequest = dispatcherRequestHistory.first(where: { $0.status == "pending" }) {
@@ -2647,8 +2625,10 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
                 self.dispatcherRequestHistory = self.dispatcherHistoryCache.getItems()
             }
 
-            // Start position tracking - PositionTracker will send location updates including initial position
-            startDispatcherPositionTracking(requestId: response.id)
+            // Reevaluate GPS priority — will detect pending dispatcher request and activate dispatcher mode
+            await MainActor.run {
+                self.reevaluateGPSPriority()
+            }
 
             // Stop GPS warm-up (PositionTracker handles tracking from here)
             locationService.stopWarmUp()
@@ -2723,28 +2703,6 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         await MainActor.run {
             self.reevaluateGPSPriority()
         }
-    }
-
-    /// Start position tracking for dispatcher request using PositionTracker
-    private func startDispatcherPositionTracking(requestId: String) {
-        print("[MumbleService] Starting position tracking for dispatcher request: \(requestId)")
-
-        guard let subdomain = tenantSubdomain,
-              let certificateHash = credentials?.certificateHash else {
-            print("[MumbleService] Cannot start dispatcher position tracking: missing credentials")
-            return
-        }
-
-        // Use PositionTracker dispatcher mode for position tracking
-        // Session ID format: "dispatcher_{requestId}" for unified GPS endpoint
-        let dispatcherInterval = alarmSettings.dispatcherGpsInterval
-        positionTracker.setDispatcherMode(
-            sessionId: "dispatcher_\(requestId)",
-            frequencySeconds: dispatcherInterval,
-            subdomain: subdomain,
-            certificateHash: certificateHash
-        )
-        // Note: No callback needed for dispatcher - just position upload handled by PositionTracker
     }
 
     /// Stop dispatcher request tracking
