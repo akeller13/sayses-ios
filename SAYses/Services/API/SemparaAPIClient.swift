@@ -838,6 +838,40 @@ class SemparaAPIClient {
         }
     }
 
+    // MARK: - Active Dispatcher Call API
+
+    /// Get active dispatcher call info - GET /api/user/active-dispatcher-call
+    /// Signature format: {timestamp}{certificate_hash} (no colon, timestamp first)
+    func getActiveDispatcherCall(subdomain: String, certificateHash: String) async throws -> ActiveDispatcherCallResponse {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/user/active-dispatcher-call") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let signatureData = "\(timestamp)\(certificateHash)"
+        let signature = signRaw(certificateHash: certificateHash, message: signatureData)
+
+        var request = URLRequest(url: url)
+        request.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        request.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        request.setValue(signature, forHTTPHeaderField: "X-Signature")
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(ActiveDispatcherCallResponse.self, from: data)
+    }
+
     // MARK: - AudioCast API
 
     /// Get AudioCast list for a channel - GET /api/mobile/audiocast/list
@@ -1315,6 +1349,16 @@ struct DispatcherRequestHistoryItem: Codable, Identifiable {
     let handledByUserDisplayname: String?
     let requestUserDisplayname: String?
     let waitTimeSeconds: Int?
+}
+
+// MARK: - Active Dispatcher Call Response
+
+struct ActiveDispatcherCallResponse: Codable {
+    let active: Bool
+    let requestId: String?
+    let handledByUserName: String?
+    let handledByUserDisplayname: String?
+    let mumbleChannelId: Int?
 }
 
 struct OpenAlarmsResponse: Codable {

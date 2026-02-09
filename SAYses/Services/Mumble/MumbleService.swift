@@ -70,10 +70,24 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     @Published private(set) var isLoadingDispatcherHistory: Bool = false
     @Published var showDispatcherCancelledToast: Bool = false  // Triggers "Meldung abgebrochen" toast
     private var dispatcherRequestBackendId: String?
+    private(set) var currentDispatcherChannelId: UInt32?  // Mumble channel for active dispatcher dialog
     private var dispatcherVoiceFilePath: URL?
     private var pendingCancelRequestId: String?  // Used for retry after reconnect
     private let dispatcherHistoryCache = DispatcherHistoryCache.shared
     private var dispatcherHistorySSETask: Task<Void, Never>?  // SSE stream task
+
+    // MARK: - Dispatcher Presence Monitoring
+    @Published private(set) var dispatcherHandlerMumbleName: String? = nil
+    @Published private(set) var dispatcherHandlerDisplayName: String? = nil
+
+    enum DispatcherConversationStatus {
+        case idle           // Kein aktives Gespräch
+        case inProgress     // Beide User im Kanal — "in Bearbeitung"
+        case interrupted    // Verbindungsabbruch — "unterbrochen"
+    }
+    @Published private(set) var dispatcherConversationStatus: DispatcherConversationStatus = .idle
+
+    private var dispatcherDisconnectTimer: Timer? = nil
 
     // MARK: - Auto-Reconnect State
     private var lastCredentials: MumbleCredentials?
@@ -150,6 +164,11 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         localUserChannelId == 0 || localUserChannelId == tenantChannelId
     }
 
+    /// User is currently in an active call (in a non-tenant sub-channel)
+    var activeCall: Bool {
+        !isInTenantChannel
+    }
+
     /// Check if current user has an own open alarm (cannot trigger another while one is active)
     var hasOwnOpenAlarm: Bool {
         guard let username = credentials?.username else { return false }
@@ -162,6 +181,12 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     var isDispatcherModeActive: Bool {
         if case .dispatcher = positionTracker.mode { return true }
         return false
+    }
+
+    /// Reliable indicator: user is currently in an active dispatcher conversation
+    /// Based on dispatcher presence monitoring — both users must be in the channel
+    var isInDispatcherConversation: Bool {
+        dispatcherConversationStatus == .inProgress
     }
 
     private var audioLevelObserver: NSKeyValueObservation?
@@ -207,6 +232,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
     deinit {
         networkMonitor?.cancel()
+        dispatcherDisconnectTimer?.invalidate()
         // Cancel tasks directly without creating new closures (avoids weak reference issues during deallocation)
         reconnectTask?.cancel()
         countdownTask?.cancel()
@@ -838,12 +864,14 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         // Start hourly settings refresh
         startHourlySettingsRefresh()
 
-        // Fetch settings, sync alarms, and resume position tracking
+        // Fetch settings, sync alarms, load dispatcher history, and resume position tracking
         Task { @MainActor in
             print("[MumbleService] Starting initial sync task...")
             await refreshAlarmSettings()
             print("[MumbleService] Settings refreshed, now syncing alarms...")
             await syncAlarms()
+            print("[MumbleService] Alarms synced, now loading dispatcher history...")
+            await fetchDispatcherRequestHistory()
             print("[MumbleService] Initial sync complete")
 
             // Reevaluate GPS priority (replaces resumePositionTrackingForOwnAlarms)
@@ -2160,8 +2188,8 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         positionTrackingAlarmId = nil
         positionTrackingBackendId = nil
 
-        // Priority 2: Open dispatcher request (status = "pending")
-        if let openRequest = dispatcherRequestHistory.first(where: { $0.status == "pending" }) {
+        // Priority 2: Active dispatcher request (pending or in_progress)
+        if let openRequest = dispatcherRequestHistory.first(where: { $0.status == "pending" || $0.status == "in_progress" }) {
             let interval = alarmSettings.dispatcherGpsInterval
             let sessionId = "dispatcher_\(openRequest.id)"
             NSLog("[MumbleService] GPS priority: DISPATCHER (interval=%ds, session=%@)", interval, sessionId)
@@ -2538,7 +2566,95 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             self.isDispatcherRequestActive = false
             self.currentDispatcherRequestId = nil
             self.dispatcherRequestBackendId = nil
+            self.currentDispatcherChannelId = nil
+            self.dispatcherHandlerMumbleName = nil
+            self.dispatcherHandlerDisplayName = nil
+            self.dispatcherConversationStatus = .idle
+            self.dispatcherDisconnectTimer?.invalidate()
+            self.dispatcherDisconnectTimer = nil
             self.reevaluateGPSPriority()
+        }
+    }
+
+    // MARK: - Dispatcher Presence Monitoring
+
+    /// Evaluate whether the dispatcher is present in the dispatcher channel.
+    /// Called on every user list update and after checkActiveDispatcherCall().
+    private func evaluateDispatcherPresence() {
+        guard let channelId = currentDispatcherChannelId,
+              let dispatcherName = dispatcherHandlerMumbleName else {
+            NSLog("[MumbleService] evaluateDispatcherPresence: SKIP — channelId=%d, handlerName=%@",
+                  currentDispatcherChannelId ?? 0, dispatcherHandlerMumbleName ?? "nil")
+            return
+        }
+
+        let channelUsers = getChannelUsers(channelId)
+        let dispatcherInChannel = channelUsers.contains { $0.name == dispatcherName }
+        let localUserInChannel = (localUserChannelId == channelId)
+
+        NSLog("[MumbleService] evaluateDispatcherPresence: channel=%d, dispatcherName='%@', usersInChannel=%d [%@], dispatcherFound=%d, localInChannel=%d, status=%d",
+              channelId, dispatcherName,
+              channelUsers.count,
+              channelUsers.map { $0.name }.joined(separator: ", "),
+              dispatcherInChannel, localUserInChannel,
+              dispatcherConversationStatus == .idle ? 0 : (dispatcherConversationStatus == .inProgress ? 1 : 2))
+
+        if dispatcherInChannel && localUserInChannel {
+            // Beide im Kanal → Gespräch aktiv
+            dispatcherDisconnectTimer?.invalidate()
+            dispatcherDisconnectTimer = nil
+            if dispatcherConversationStatus != .inProgress {
+                NSLog("[MumbleService] Dispatcher '%@' present in channel %d — conversation in progress", dispatcherName, channelId)
+                dispatcherConversationStatus = .inProgress
+            }
+        } else if dispatcherConversationStatus == .inProgress {
+            // Einer fehlt → 10s Timer starten
+            NSLog("[MumbleService] Dispatcher or local user missing from channel %d — starting disconnect timer", channelId)
+            startDisconnectTimer()
+        }
+    }
+
+    /// Start a 10-second timer. If both users don't reconnect within 10s, mark conversation as interrupted.
+    private func startDisconnectTimer() {
+        guard dispatcherDisconnectTimer == nil else { return }  // Timer läuft bereits
+        dispatcherDisconnectTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                NSLog("[MumbleService] Disconnect timer expired — conversation interrupted")
+                self.dispatcherConversationStatus = .interrupted
+                self.dispatcherDisconnectTimer = nil
+            }
+        }
+    }
+
+    /// Fetch the dispatcher's Mumble username from backend after a server-move.
+    /// Called once when handleChannelSync detects a move to a non-tenant channel.
+    private func checkActiveDispatcherCall() {
+        guard let subdomain = tenantSubdomain,
+              let certificateHash = credentials?.certificateHash else { return }
+
+        Task {
+            do {
+                let response = try await apiClient.getActiveDispatcherCall(
+                    subdomain: subdomain,
+                    certificateHash: certificateHash
+                )
+                await MainActor.run {
+                    if response.active, let mumbleName = response.handledByUserName {
+                        NSLog("[MumbleService] Active dispatcher call: handler='%@', channel=%d",
+                              mumbleName, response.mumbleChannelId ?? 0)
+                        self.dispatcherHandlerMumbleName = mumbleName
+                        self.dispatcherHandlerDisplayName = response.handledByUserDisplayname
+                        self.evaluateDispatcherPresence()
+                    } else {
+                        NSLog("[MumbleService] No active dispatcher call found")
+                        self.dispatcherHandlerMumbleName = nil
+                        self.dispatcherHandlerDisplayName = nil
+                    }
+                }
+            } catch {
+                NSLog("[MumbleService] Failed to check active dispatcher call: %@", error.localizedDescription)
+            }
         }
     }
 
@@ -2706,19 +2822,6 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     }
 
     /// Stop dispatcher request tracking
-    func stopDispatcherRequest() {
-        print("[MumbleService] Stopping dispatcher request")
-        reevaluateGPSPriority()
-        cancelVoiceRecording()
-
-        DispatchQueue.main.async {
-            self.isDispatcherRequestActive = false
-            self.currentDispatcherRequestId = nil
-            self.dispatcherRequestBackendId = nil
-            self.dispatcherVoiceFilePath = nil
-        }
-    }
-
     /// Fetch dispatcher request history for the current user
     func fetchDispatcherRequestHistory() async {
         print("[MumbleService] fetchDispatcherRequestHistory() called")
@@ -2808,6 +2911,24 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
                             self.isLoadingDispatcherHistory = false
                             // Reevaluate GPS priority when dispatcher status changes via SSE
                             self.reevaluateGPSPriority()
+
+                            // Reset dispatcher state when active request is completed/cancelled
+                            if let activeId = self.dispatcherRequestBackendId {
+                                let activeRequest = self.dispatcherRequestHistory.first(where: { $0.id == activeId })
+                                if activeRequest == nil || activeRequest?.status == "completed" || activeRequest?.status == "cancelled" {
+                                    NSLog("[MumbleService] SSE: active dispatcher request %@ ended (status=%@) — resetting state",
+                                          activeId, activeRequest?.status ?? "gone")
+                                    self.isDispatcherRequestActive = false
+                                    self.currentDispatcherRequestId = nil
+                                    self.dispatcherRequestBackendId = nil
+                                    self.currentDispatcherChannelId = nil
+                                    self.dispatcherHandlerMumbleName = nil
+                                    self.dispatcherHandlerDisplayName = nil
+                                    self.dispatcherConversationStatus = .idle
+                                    self.dispatcherDisconnectTimer?.invalidate()
+                                    self.dispatcherDisconnectTimer = nil
+                                }
+                            }
                         }
                     }
 
@@ -2854,6 +2975,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
                 // Connection successful
                 self.onConnectionSuccess()
                 self.autoJoinTenantChannel()
+                self.rejoinDispatcherChannelIfNeeded()
             } else if state == .disconnected || state == .failed {
                 // Connection lost - trigger auto-reconnect if applicable
                 if previousState == .synchronized || previousState == .connecting || previousState == .connected {
@@ -2874,6 +2996,21 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
         // Join immediately - connection is already synchronized
         joinChannel(tenantChannelId)
+    }
+
+    /// After reconnect, rejoin the dispatcher channel if a request is still active
+    private func rejoinDispatcherChannelIfNeeded() {
+        guard isDispatcherRequestActive || dispatcherConversationStatus == .interrupted,
+              let dispatcherChannelId = currentDispatcherChannelId,
+              dispatcherChannelId != 0,
+              dispatcherChannelId != tenantChannelId else {
+            return
+        }
+
+        NSLog("[MumbleService] Rejoining dispatcher channel %d after reconnect", dispatcherChannelId)
+        joinChannel(dispatcherChannelId)
+        // Re-check dispatcher presence after rejoin
+        evaluateDispatcherPresence()
     }
 
     /// Flag to suppress navigation during initial connection sync.
@@ -2928,6 +3065,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
             // Update local user's channel from user list
             self.updateLocalUserChannel()
+
+            // Check dispatcher presence on every user list change
+            self.evaluateDispatcherPresence()
         }
     }
 
@@ -2972,6 +3112,19 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         let viewedChannel = currentlyViewedChannelId
         print("[MumbleService] handleChannelSync: newChannelId=\(newChannelId), viewedChannel=\(viewedChannel ?? 0), tenantChannelId=\(tenantChannelId), isInitialSync=\(isInitialSync)")
 
+        // Clear dispatcher channel when user returns to tenant/root
+        if newChannelId == 0 || newChannelId == tenantChannelId {
+            if currentDispatcherChannelId != nil {
+                NSLog("[MumbleService] User back in tenant channel — clearing dispatcher channel")
+                currentDispatcherChannelId = nil
+                dispatcherHandlerMumbleName = nil
+                dispatcherHandlerDisplayName = nil
+                dispatcherConversationStatus = .idle
+                dispatcherDisconnectTimer?.invalidate()
+                dispatcherDisconnectTimer = nil
+            }
+        }
+
         // During initial connection sync, don't trigger navigation.
         // Channels aren't loaded yet (debounced) and autoJoinTenantChannel() is already
         // moving the user — navigating now would cause a rapid push/pop cycle that
@@ -2985,16 +3138,29 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         if let viewed = viewedChannel, viewed != newChannelId {
             print("[MumbleService] Channel mismatch: viewing \(viewed) but server says \(newChannelId)")
 
-            if newChannelId == 0 || newChannelId == tenantChannelId {
-                print("[MumbleService] User moved to tenant/root channel - navigating back to list")
-                navigateBackToList = true
+            // Always pop back to list first — server moved the user, not the user themselves
+            navigateBackToList = true
+
+            if newChannelId != 0 && newChannelId != tenantChannelId {
+                // Server moved user to a non-tenant channel — track as dispatcher channel
+                currentDispatcherChannelId = newChannelId
+                checkActiveDispatcherCall()
+                NSLog("[MumbleService] Server moved user to channel %d while viewing %d - dispatcher channel set, navigating back + dispatcher tab", newChannelId, viewed)
+                switchToDispatcherTab = true
             } else {
-                print("[MumbleService] User in different channel - navigating to \(newChannelId)")
-                navigateToChannel = newChannelId
+                print("[MumbleService] User moved to tenant/root channel - navigating back to list")
             }
         } else if viewedChannel == nil && newChannelId != 0 && newChannelId != tenantChannelId {
-            print("[MumbleService] User in channel \(newChannelId) but viewing list - triggering navigation")
-            navigateToChannel = newChannelId
+            if activeCall {
+                // Server moved user to non-tenant channel while on list view — track as dispatcher channel
+                currentDispatcherChannelId = newChannelId
+                checkActiveDispatcherCall()
+                NSLog("[MumbleService] activeCall=true, channel %d set as dispatcher channel - switching to dispatcher tab", newChannelId)
+                switchToDispatcherTab = true
+            } else {
+                print("[MumbleService] User in channel \(newChannelId) but viewing list - triggering navigation")
+                navigateToChannel = newChannelId
+            }
         } else {
             print("[MumbleService] No navigation needed (viewedChannel=\(viewedChannel ?? 0), newChannelId=\(newChannelId))")
         }

@@ -5,11 +5,12 @@ struct PttButton: View {
     let audioLevel: Float
     let onPressed: () -> Void
     let onReleased: () -> Void
+    var inactiveColor: Color = .pttInactive
 
     @State private var isCurrentlyPressed: Bool = false
 
     private var buttonColor: Color {
-        isTransmitting ? .pttActive : .pttInactive
+        isTransmitting ? .pttActive : inactiveColor
     }
 
     var body: some View {

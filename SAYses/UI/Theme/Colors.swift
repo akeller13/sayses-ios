@@ -20,6 +20,9 @@ extension Color {
     static let pttActive = Color(hex: "B71C1C")
     static let pttActiveRipple = Color(hex: "D32F2F")
 
+    // Dispatcher Colors
+    static let dispatcherOrange = Color(hex: "F57C00")
+
     // Alarm Colors
     static let alarmRed = Color(hex: "D32F2F")
     static let alarmRedDark = Color(hex: "B71C1C")

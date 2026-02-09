@@ -13,6 +13,42 @@ Wenn Anweisungen mehrdeutig sind oder mehrere Implementierungsansätze möglich 
 - **Immer nachfragen** und die Optionen präsentieren
 - Die Entscheidung liegt beim Benutzer, nicht bei Claude
 
+### Keine eigenmächtigen Änderungen
+- **Code-Änderungen und Layout-Änderungen nur mit explizitem Auftrag des Benutzers**
+- Niemals eigenständig Code hinzufügen, entfernen oder umstrukturieren, der nicht ausdrücklich beauftragt wurde
+- Auch keine "kleinen Verbesserungen" oder "Aufräumarbeiten" ohne Auftrag
+
+## Backend-Hinweise
+
+### AsyncSession (SQLAlchemy 2.0)
+Beim Anlegen oder Ändern eines Endpunktes darauf achten: `auth.db` ist eine `AsyncSession` (SQLAlchemy 2.0). Eine solche hat keine `.query()` Methode. Man muss stattdessen `select()` + `await db.execute()` verwenden.
+
+### Lokale Imports in Endpoint-Funktionen
+Models wie `DispatcherRequest`, `AlarmLog` etc. sind NICHT auf Modul-Ebene importiert. Jede Endpoint-Funktion muss einen **lokalen Import** haben:
+
+```python
+# RICHTIG — lokaler Import + async select():
+async def my_endpoint(auth: MobileAuth = Depends(get_mobile_auth_extended_timestamp)):
+    auth.verify_sse_signature()
+    from models import DispatcherRequest   # ← PFLICHT!
+    db = auth.db
+
+    query = select(DispatcherRequest).where(
+        DispatcherRequest.certificate_hash == auth.certificate_hash,
+        DispatcherRequest.status == "in_progress"
+    )
+    result = await db.execute(query)
+    request = result.scalars().first()
+
+# FALSCH — kein lokaler Import:
+async def my_endpoint(auth: ...):
+    db = auth.db
+    query = select(DispatcherRequest).where(...)  # ← NameError!
+
+# FALSCH — AsyncSession hat kein .query():
+request = db.query(DispatcherRequest).filter(...).first()  # ← AttributeError!
+```
+
 ## Build & Deploy
 
 - Projekt öffnen: `open SAYses.xcodeproj`

@@ -33,6 +33,7 @@ struct ChannelListView: View {
     @State private var showOnlyFavorites = false
     @State private var selectedTab: ChannelListTab = .channels
     @State private var selectedDispatcherSubTab: DispatcherSubTab = .sendMessage
+    @State private var isDispatcherTransmitting = false
 
     // Alarm state
     @State private var showAlarmCountdown = false
@@ -277,6 +278,16 @@ struct ChannelListView: View {
         // Handle auto-navigation from server channel changes
         .onReceive(mumbleService.$navigateToChannel) { channelId in
             guard let channelId = channelId else { return }
+            // Suppress navigation to channel detail when activeCall is true
+            if mumbleService.activeCall {
+                print("[ChannelListView] activeCall=true - suppressing navigateToChannel \(channelId), switching to dispatcher tab")
+                mumbleService.navigateToChannel = nil
+                if !navigationPath.isEmpty {
+                    navigationPath = NavigationPath()
+                }
+                selectedTab = .dispatcher
+                return
+            }
             if let channel = mumbleService.getChannel(channelId) {
                 navigationPath.append(channel)
                 mumbleService.navigateToChannel = nil
@@ -288,6 +299,12 @@ struct ChannelListView: View {
         // Retry navigation when channels update (handles timing issues)
         .onReceive(mumbleService.$channels) { _ in
             guard let channelId = mumbleService.navigateToChannel else { return }
+            // Suppress navigation when activeCall is true
+            if mumbleService.activeCall {
+                print("[ChannelListView] activeCall=true - suppressing channel retry navigation \(channelId)")
+                mumbleService.navigateToChannel = nil
+                return
+            }
             if let channel = mumbleService.getChannel(channelId) {
                 navigationPath.append(channel)
                 mumbleService.navigateToChannel = nil
@@ -302,7 +319,6 @@ struct ChannelListView: View {
         // Direct observation of local user channel (more reliable than onAppear/onDisappear)
         // When user is moved to tenant/root channel while viewing another channel, pop back to list
         .onChange(of: mumbleService.localUserChannelId) { oldValue, newValue in
-            // Check if we're viewing a channel (navigationPath not empty) and user is now in tenant/root
             guard !navigationPath.isEmpty else { return }
 
             let isInTenantOrRoot = newValue == 0 || newValue == mumbleService.tenantChannelId
@@ -316,6 +332,13 @@ struct ChannelListView: View {
             guard newValue else { return }
             selectedTab = .dispatcher
             mumbleService.switchToDispatcherTab = false
+        }
+        // Stop transmission if dispatcher conversation ends while PTT is pressed
+        .onChange(of: mumbleService.isInDispatcherConversation) { _, newValue in
+            if !newValue && isDispatcherTransmitting {
+                isDispatcherTransmitting = false
+                mumbleService.stopTransmitting()
+            }
         }
         .overlay(alignment: .topLeading) {
             if let profileImage, navigationPath.isEmpty, mumbleService.currentlyViewedChannelId == nil {
@@ -528,6 +551,28 @@ struct ChannelListView: View {
         )
     }
 
+    private var dispatcherResumeButton: some View {
+        Button {
+            if let channelId = mumbleService.currentDispatcherChannelId {
+                mumbleService.joinChannel(channelId)
+            }
+        } label: {
+            HStack {
+                Image(systemName: "phone.arrow.up.right")
+                    .font(.title2)
+                Text("Gespräch fortsetzen")
+                    .font(.headline)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(Color.dispatcherOrange)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal)
+            .padding(.vertical, 12)
+        }
+    }
+
     private var dispatcherHistorySection: some View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
@@ -669,6 +714,8 @@ struct ChannelListView: View {
                             .foregroundStyle(selectedTab == .channels ? .primary : .secondary)
                     }
                     .buttonStyle(.plain)
+                    .disabled(mumbleService.isInDispatcherConversation)
+                    .opacity(mumbleService.isInDispatcherConversation ? 0.3 : 1.0)
 
                     // Favorites star (only shown when channels tab is active)
                     if selectedTab == .channels {
@@ -788,11 +835,39 @@ struct ChannelListView: View {
                 if hasBothDispatcherPermissions {
                     // Content based on selected sub-tab (sub-tabs are now in header section above)
                     if selectedDispatcherSubTab == .sendMessage {
-                        Section {
-                            dispatcherRequestButton
+                        if mumbleService.isInDispatcherConversation {
+                            Section {
+                                PttButton(
+                                    isTransmitting: isDispatcherTransmitting,
+                                    audioLevel: mumbleService.audioInputLevel,
+                                    onPressed: {
+                                        isDispatcherTransmitting = true
+                                        mumbleService.startTransmitting()
+                                    },
+                                    onReleased: {
+                                        isDispatcherTransmitting = false
+                                        mumbleService.stopTransmitting()
+                                    },
+                                    inactiveColor: .dispatcherOrange
+                                )
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 20)
+                            }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                        } else if mumbleService.dispatcherConversationStatus == .interrupted {
+                            Section {
+                                dispatcherResumeButton
+                            }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                        } else {
+                            Section {
+                                dispatcherRequestButton
+                            }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
                         }
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
 
                         // Dispatcher request history
                         dispatcherHistorySection
@@ -807,11 +882,39 @@ struct ChannelListView: View {
                 } else {
                     // Only one permission - show single content
                     if mumbleService.userPermissions.canCallDispatcher {
-                        Section {
-                            dispatcherRequestButton
+                        if mumbleService.isInDispatcherConversation {
+                            Section {
+                                PttButton(
+                                    isTransmitting: isDispatcherTransmitting,
+                                    audioLevel: mumbleService.audioInputLevel,
+                                    onPressed: {
+                                        isDispatcherTransmitting = true
+                                        mumbleService.startTransmitting()
+                                    },
+                                    onReleased: {
+                                        isDispatcherTransmitting = false
+                                        mumbleService.stopTransmitting()
+                                    },
+                                    inactiveColor: .dispatcherOrange
+                                )
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 20)
+                            }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                        } else if mumbleService.dispatcherConversationStatus == .interrupted {
+                            Section {
+                                dispatcherResumeButton
+                            }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                        } else {
+                            Section {
+                                dispatcherRequestButton
+                            }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
                         }
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
 
                         // Dispatcher request history
                         dispatcherHistorySection
@@ -968,6 +1071,9 @@ struct ChannelListView: View {
     // MARK: - Actions
 
     private func joinAndNavigate(_ channel: Channel) {
+        // Set viewed channel BEFORE join — so handleChannelSync sees the correct state
+        // when the server confirms the channel change (closes timing gap with onAppear)
+        mumbleService.currentlyViewedChannelId = channel.id
         // Join the channel on server
         mumbleService.joinChannel(channel.id)
         // Navigate to channel view
