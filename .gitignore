@@ -25,3 +25,4 @@ fastlane/screenshots/**/*.png
 # IDE
 *.xcworkspacedata
 !default.xcworkspacedata
+!SAYses.xcworkspace/contents.xcworkspacedata
