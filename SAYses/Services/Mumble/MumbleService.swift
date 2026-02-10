@@ -548,9 +548,28 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
             alarmRepository = AlarmRepository.shared()
         }
 
-        // Check for duplicate
+        // Check for duplicate — by alarmId OR by backendId
         if alarmRepository?.alarmExists(alarmId: data.id) == true {
-            print("[MumbleService] SSE: Alarm already exists - ignoring duplicate")
+            print("[MumbleService] SSE: Alarm already exists (by alarmId) - ignoring duplicate")
+            return
+        }
+        if alarmRepository?.getAlarm(byBackendId: data.id) != nil {
+            print("[MumbleService] SSE: Alarm already exists (by backendId) - ignoring duplicate")
+            return
+        }
+
+        // Check for recent alarm from same user in same channel (Tree message may have arrived first with different ID)
+        if let existingAlarms = alarmRepository?.getOpenAlarms(),
+           existingAlarms.contains(where: { $0.triggeredByUsername == (data.alarmStartUserName ?? "") &&
+                                             $0.channelId == UInt32(data.channelId ?? 0) &&
+                                             abs($0.receivedAt.timeIntervalSinceNow) < 30 }) {
+            // Tree message already created this alarm — update its backendAlarmId
+            if let existing = existingAlarms.first(where: { $0.triggeredByUsername == (data.alarmStartUserName ?? "") &&
+                                                             $0.channelId == UInt32(data.channelId ?? 0) &&
+                                                             abs($0.receivedAt.timeIntervalSinceNow) < 30 }) {
+                alarmRepository?.updateBackendAlarmId(alarmId: existing.alarmId, backendAlarmId: data.id)
+                print("[MumbleService] SSE: Linked existing tree alarm \(existing.alarmId) to backend ID \(data.id)")
+            }
             return
         }
 
@@ -2578,6 +2597,27 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
     // MARK: - Dispatcher Presence Monitoring
 
+    /// Pure logic for evaluating dispatcher presence — extracted for testability.
+    /// Returns the action to take based on current presence state.
+    enum PresenceAction: Equatable {
+        case setInProgress    // Both users present → active conversation
+        case startTimer       // One user missing while inProgress → start 10s timer
+        case noChange         // No state change needed
+    }
+
+    static func evaluatePresence(
+        dispatcherInChannel: Bool,
+        localUserInChannel: Bool,
+        currentStatus: DispatcherConversationStatus
+    ) -> PresenceAction {
+        if dispatcherInChannel && localUserInChannel {
+            return currentStatus != .inProgress ? .setInProgress : .noChange
+        } else if currentStatus == .inProgress {
+            return .startTimer
+        }
+        return .noChange
+    }
+
     /// Evaluate whether the dispatcher is present in the dispatcher channel.
     /// Called on every user list update and after checkActiveDispatcherCall().
     private func evaluateDispatcherPresence() {
@@ -2599,18 +2639,23 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
               dispatcherInChannel, localUserInChannel,
               dispatcherConversationStatus == .idle ? 0 : (dispatcherConversationStatus == .inProgress ? 1 : 2))
 
-        if dispatcherInChannel && localUserInChannel {
-            // Beide im Kanal → Gespräch aktiv
+        let action = Self.evaluatePresence(
+            dispatcherInChannel: dispatcherInChannel,
+            localUserInChannel: localUserInChannel,
+            currentStatus: dispatcherConversationStatus
+        )
+
+        switch action {
+        case .setInProgress:
             dispatcherDisconnectTimer?.invalidate()
             dispatcherDisconnectTimer = nil
-            if dispatcherConversationStatus != .inProgress {
-                NSLog("[MumbleService] Dispatcher '%@' present in channel %d — conversation in progress", dispatcherName, channelId)
-                dispatcherConversationStatus = .inProgress
-            }
-        } else if dispatcherConversationStatus == .inProgress {
-            // Einer fehlt → 10s Timer starten
+            NSLog("[MumbleService] Dispatcher '%@' present in channel %d — conversation in progress", dispatcherName, channelId)
+            dispatcherConversationStatus = .inProgress
+        case .startTimer:
             NSLog("[MumbleService] Dispatcher or local user missing from channel %d — starting disconnect timer", channelId)
             startDisconnectTimer()
+        case .noChange:
+            break
         }
     }
 

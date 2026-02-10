@@ -43,6 +43,7 @@
 		5F552BB86B3DB3A7992C14B9 /* jitter_buffer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 014CDC4FE9CBBDF583587400 /* jitter_buffer.cpp */; };
 		64F086D89ADEA65D9ACBDC13 /* ChannelRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD902823BA69DB60D629F35 /* ChannelRowView.swift */; };
 		65B6D95C98444B60639008CF /* SAYsesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30406EC7FE3B9E996B4B6C34 /* SAYsesTests.swift */; };
+		DISP00010002000300040005 /* DispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DISP00010002000300040006 /* DispatcherTests.swift */; };
 		70D81D1D3FC3F3010FE608D2 /* AlarmSoundPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D7FA405A5D7576AEDA1435D /* AlarmSoundPicker.swift */; };
 		7648E85298F5B054FBAAE110 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06D87CA17D78F7F369D16DB9 /* User.swift */; };
 		CHMB001002003004005006AA /* ChannelMember.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHMB001002003004005006BB /* ChannelMember.swift */; };
@@ -123,6 +124,7 @@
 		286E023B3F74BAA079F85DAA /* AudioEngineBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioEngineBridge.h; sourceTree = "<group>"; };
 		2FA91903C849703FA3A30DED /* PushKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = PushKit.framework; path = System/Library/Frameworks/PushKit.framework; sourceTree = SDKROOT; };
 		30406EC7FE3B9E996B4B6C34 /* SAYsesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SAYsesTests.swift; sourceTree = "<group>"; };
+		DISP00010002000300040006 /* DispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatcherTests.swift; sourceTree = "<group>"; };
 		31774FD154211F854B5A222C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		33705A009486368E024E8EC9 /* AudioCastModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioCastModels.swift; sourceTree = "<group>"; };
 		3D142C74BC30977E5E53C794 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
@@ -549,6 +551,7 @@
 		B86FF8C8A62E0F6002F20743 /* SAYsesTests */ = {
 			isa = PBXGroup;
 			children = (
+				DISP00010002000300040006 /* DispatcherTests.swift */,
 				30406EC7FE3B9E996B4B6C34 /* SAYsesTests.swift */,
 			);
 			path = SAYsesTests;
@@ -836,6 +839,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DISP00010002000300040005 /* DispatcherTests.swift in Sources */,
 				65B6D95C98444B60639008CF /* SAYsesTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -963,7 +967,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = KHLQ2SP75F;
 				GCC_ENABLE_CPP_EXCEPTIONS = YES;
 				GCC_ENABLE_CPP_RTTI = YES;
 				GCC_INPUT_FILETYPE = automatic;
