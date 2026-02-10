@@ -1,0 +1,38 @@
+PODS:
+  - KeychainAccess (4.2.2)
+  - libopus (1.1):
+    - libopus/float (= 1.1)
+  - libopus/float (1.1)
+  - Speex-iOS (0.2.0):
+    - Speex-iOS/Codec (= 0.2.0)
+    - Speex-iOS/Libs (= 0.2.0)
+  - Speex-iOS/Codec (0.2.0):
+    - Speex-iOS/Libs
+  - Speex-iOS/Libs (0.2.0):
+    - Speex-iOS/Libs/config (= 0.2.0)
+    - Speex-iOS/Libs/libogg (= 0.2.0)
+    - Speex-iOS/Libs/libspeex (= 0.2.0)
+  - Speex-iOS/Libs/config (0.2.0)
+  - Speex-iOS/Libs/libogg (0.2.0)
+  - Speex-iOS/Libs/libspeex (0.2.0):
+    - Speex-iOS/Libs/config
+
+DEPENDENCIES:
+  - KeychainAccess (~> 4.2)
+  - libopus (~> 1.1)
+  - Speex-iOS (~> 0.2.0)
+
+SPEC REPOS:
+  trunk:
+    - KeychainAccess
+    - libopus
+    - Speex-iOS
+
+SPEC CHECKSUMS:
+  KeychainAccess: c0c4f7f38f6fc7bbe58f5702e25f7bd2f65abf51
+  libopus: ad5f060dcb8f30f139777244d70f9111f1c80863
+  Speex-iOS: ead70d4b177f307a013ee14e821877be2fc34d50
+
+PODFILE CHECKSUM: aa421e5cb51e6b614a7250b2bfd9f910971af09b
+
+COCOAPODS: 1.16.2

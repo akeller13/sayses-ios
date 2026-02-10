@@ -1,0 +1,4 @@
+${PODS_ROOT}/Target Support Files/Pods-SAYses/Pods-SAYses-frameworks.sh
+${BUILT_PRODUCTS_DIR}/KeychainAccess/KeychainAccess.framework
+${BUILT_PRODUCTS_DIR}/Speex-iOS/Speex_iOS.framework
+${BUILT_PRODUCTS_DIR}/libopus/libopus.framework

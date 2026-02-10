@@ -1,0 +1,6 @@
+framework module Speex_iOS {
+  umbrella header "Speex-iOS-umbrella.h"
+
+  export *
+  module * { export * }
+}

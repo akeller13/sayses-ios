@@ -5,8 +5,8 @@ DerivedData/
 *.xcuserdatad
 xcuserdata/
 
-# CocoaPods
-Pods/
+# CocoaPods — Pods are checked in for Xcode Cloud compatibility
+# Pods/
 
 # Swift Package Manager
 .build/
