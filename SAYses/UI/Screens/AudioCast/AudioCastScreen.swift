@@ -186,6 +186,7 @@ struct AudioCastScreen: View {
                     audioCast: audioCast,
                     isSelected: viewModel.selectedIds.contains(audioCast.id),
                     isCurrentlyPlaying: audioCast.id == viewModel.playbackStatus?.currentAudiocastId,
+                    elapsedSeconds: audioCast.id == viewModel.playbackStatus?.currentAudiocastId ? viewModel.displayElapsedSeconds : nil,
                     onToggle: {
                         viewModel.toggleSelection(audioCast.id)
                     }
@@ -202,7 +203,15 @@ struct AudioCastListItem: View {
     let audioCast: AudioCastItem
     let isSelected: Bool
     let isCurrentlyPlaying: Bool
+    var elapsedSeconds: Int? = nil
     let onToggle: () -> Void
+
+    private var formattedElapsed: String? {
+        guard let elapsed = elapsedSeconds else { return nil }
+        let minutes = elapsed / 60
+        let seconds = elapsed % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
 
     var body: some View {
         Button(action: onToggle) {
@@ -219,9 +228,15 @@ struct AudioCastListItem: View {
                         .foregroundStyle(isCurrentlyPlaying ? Color.accentColor : .primary)
                         .lineLimit(2)
 
-                    Text(audioCast.formattedDuration)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if let elapsed = formattedElapsed, isCurrentlyPlaying {
+                        Text("\(elapsed) / \(audioCast.formattedDuration)")
+                            .font(.caption)
+                            .foregroundStyle(Color.accentColor)
+                    } else {
+                        Text(audioCast.formattedDuration)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Spacer()

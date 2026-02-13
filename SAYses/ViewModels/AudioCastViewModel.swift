@@ -22,9 +22,11 @@ class AudioCastViewModel {
     var isPlaying = false
     var isPaused = false
     var currentPlaybackId: String?
+    var displayElapsedSeconds: Int?
 
-    // Polling
+    // Polling & Timer
     private var pollingTask: Task<Void, Never>?
+    private var timerTask: Task<Void, Never>?
 
     init(channelId: UInt32, mumbleService: MumbleService) {
         self.channelId = channelId
@@ -33,6 +35,7 @@ class AudioCastViewModel {
 
     deinit {
         stopStatusPolling()
+        stopTimer()
     }
 
     // MARK: - Public Methods
@@ -66,9 +69,14 @@ class AudioCastViewModel {
                 self.isPaused = response.playbackStatus.isPaused
                 self.currentPlaybackId = response.playbackStatus.playbackId
 
-                // Start polling if playback is active
+                // Start polling and timer if playback is active
                 if response.playbackStatus.isPlaying || response.playbackStatus.isPaused {
                     self.startStatusPolling()
+                    if response.playbackStatus.isPlaying {
+                        self.startTimer(from: response.playbackStatus.currentPositionSeconds ?? 0)
+                    } else {
+                        self.displayElapsedSeconds = response.playbackStatus.currentPositionSeconds
+                    }
                 }
             }
 
@@ -135,6 +143,7 @@ class AudioCastViewModel {
                     self.isPaused = false
                     self.currentPlaybackId = response.playbackId
                     self.startStatusPolling()
+                    self.startTimer(from: 0)
                 } else {
                     // Handle error
                     let errorMsg = self.parsePlayError(response)
@@ -177,6 +186,13 @@ class AudioCastViewModel {
                         self.isPlaying = status.isPlaying
                         self.isPaused = status.isPaused
                         self.playbackStatus = status
+
+                        if status.isPlaying {
+                            self.startTimer(from: status.currentPositionSeconds ?? self.displayElapsedSeconds ?? 0)
+                        } else {
+                            self.stopTimer()
+                            self.displayElapsedSeconds = status.currentPositionSeconds ?? self.displayElapsedSeconds
+                        }
                     }
                     print("[AudioCastViewModel] Pause toggled: playing=\(self.isPlaying), paused=\(self.isPaused)")
                 } else if response.error == "no_active_playback" {
@@ -259,6 +275,30 @@ class AudioCastViewModel {
         pollingTask = nil
     }
 
+    private func startTimer(from seconds: Int) {
+        stopTimer()
+        displayElapsedSeconds = seconds
+
+        timerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                guard let self = self else { break }
+                guard self.isPlaying && !self.isPaused else { break }
+
+                await MainActor.run {
+                    if let current = self.displayElapsedSeconds {
+                        self.displayElapsedSeconds = current + 1
+                    }
+                }
+            }
+        }
+    }
+
+    private func stopTimer() {
+        timerTask?.cancel()
+        timerTask = nil
+    }
+
     private func refreshPlaybackStatus() async {
         guard let subdomain = mumbleService.tenantSubdomain,
               let certificateHash = mumbleService.credentials?.certificateHash else {
@@ -279,11 +319,18 @@ class AudioCastViewModel {
                 self.isPaused = status.isPaused
                 self.currentPlaybackId = status.playbackId
 
-                print("[AudioCastViewModel] Status poll: playing=\(status.isPlaying), paused=\(status.isPaused)")
+                // Sync local timer with server position
+                if let serverPosition = status.currentPositionSeconds {
+                    self.displayElapsedSeconds = serverPosition
+                }
 
-                // Stop polling if playback ended
+                print("[AudioCastViewModel] Status poll: playing=\(status.isPlaying), paused=\(status.isPaused), pos=\(status.currentPositionSeconds ?? -1)")
+
+                // Stop polling and timer if playback ended
                 if !status.isPlaying && !status.isPaused {
                     self.stopStatusPolling()
+                    self.stopTimer()
+                    self.displayElapsedSeconds = nil
                 }
             }
         } catch {
@@ -293,10 +340,12 @@ class AudioCastViewModel {
 
     private func resetPlaybackState() {
         stopStatusPolling()
+        stopTimer()
         isPlaying = false
         isPaused = false
         currentPlaybackId = nil
         playbackStatus = nil
+        displayElapsedSeconds = nil
     }
 
     private func parsePlayError(_ response: AudioCastPlayResponse) -> String {
