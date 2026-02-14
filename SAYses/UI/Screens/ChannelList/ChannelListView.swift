@@ -1325,6 +1325,7 @@ struct InfoView: View {
                     LabeledContent("Autor", value: "Andreas Keller")
                     LabeledContent("E-Mail", value: "info@sayses.com")
                     LabeledContent("Telefon", value: "+49 15678 - 531.538")
+                    LabeledContent("Note", value: "Coded in the Silicon Woods")
                 }
             }
             .navigationTitle("Information")
