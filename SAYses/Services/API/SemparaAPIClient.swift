@@ -1197,7 +1197,7 @@ class SemparaAPIClient {
 
     /// Get list of allowed members for a channel - GET /api/mobile/channel/{mumble_channel_id}/members
     /// Signature format: {certificate_hash}:{timestamp}:{mumble_channel_id}
-    func fetchChannelMembers(subdomain: String, certificateHash: String, mumbleChannelId: UInt32) async throws -> [ChannelMember] {
+    func fetchChannelMembers(subdomain: String, certificateHash: String, mumbleChannelId: UInt32) async throws -> ChannelMembersResponse {
         let baseURL = getTenantBaseURL(subdomain: subdomain)
         guard let url = URL(string: "\(baseURL)/api/mobile/channel/\(mumbleChannelId)/members") else {
             throw APIError.invalidURL
@@ -1227,7 +1227,89 @@ class SemparaAPIClient {
         }
 
         let decoder = JSONDecoder()
-        return try decoder.decode([ChannelMember].self, from: data)
+        return try decoder.decode(ChannelMembersResponse.self, from: data)
+    }
+
+    /// Mute a user in a channel - POST /api/mobile/channel/{mumble_channel_id}/mute
+    /// Signature format: {certificate_hash}:{timestamp}:{body_json}
+    func muteChannelUser(subdomain: String, certificateHash: String, mumbleChannelId: UInt32, username: String) async throws {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/mobile/channel/\(mumbleChannelId)/mute") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let bodyDict = ["username": username]
+        let bodyData = try JSONSerialization.data(withJSONObject: bodyDict)
+        let bodyJson = String(data: bodyData, encoding: .utf8) ?? ""
+        let signature = signWithBody(certificateHash: certificateHash, timestamp: timestamp, body: bodyJson)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        urlRequest.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        urlRequest.setValue(signature, forHTTPHeaderField: "X-Signature")
+        urlRequest.httpBody = bodyData
+
+        print("[API] POST /api/mobile/channel/\(mumbleChannelId)/mute - muting \(username)")
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            print("[API] muteChannelUser failed: HTTP \(httpResponse.statusCode)")
+            if let responseBody = String(data: data, encoding: .utf8) {
+                print("[API]   Response body: \(responseBody)")
+            }
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        print("[API] User \(username) muted successfully")
+    }
+
+    /// Unmute a user in a channel - POST /api/mobile/channel/{mumble_channel_id}/unmute
+    /// Signature format: {certificate_hash}:{timestamp}:{body_json}
+    func unmuteChannelUser(subdomain: String, certificateHash: String, mumbleChannelId: UInt32, username: String) async throws {
+        let baseURL = getTenantBaseURL(subdomain: subdomain)
+        guard let url = URL(string: "\(baseURL)/api/mobile/channel/\(mumbleChannelId)/unmute") else {
+            throw APIError.invalidURL
+        }
+
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        let bodyDict = ["username": username]
+        let bodyData = try JSONSerialization.data(withJSONObject: bodyDict)
+        let bodyJson = String(data: bodyData, encoding: .utf8) ?? ""
+        let signature = signWithBody(certificateHash: certificateHash, timestamp: timestamp, body: bodyJson)
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(certificateHash, forHTTPHeaderField: "X-Certificate-Hash")
+        urlRequest.setValue(String(timestamp), forHTTPHeaderField: "X-Timestamp")
+        urlRequest.setValue(signature, forHTTPHeaderField: "X-Signature")
+        urlRequest.httpBody = bodyData
+
+        print("[API] POST /api/mobile/channel/\(mumbleChannelId)/unmute - unmuting \(username)")
+
+        let (data, response) = try await session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            print("[API] unmuteChannelUser failed: HTTP \(httpResponse.statusCode)")
+            if let responseBody = String(data: data, encoding: .utf8) {
+                print("[API]   Response body: \(responseBody)")
+            }
+            throw APIError.httpError(statusCode: httpResponse.statusCode)
+        }
+
+        print("[API] User \(username) unmuted successfully")
     }
 
     // MARK: - Channel Image

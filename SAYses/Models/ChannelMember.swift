@@ -1,5 +1,17 @@
 import Foundation
 
+struct ChannelMembersResponse: Codable {
+    let members: [ChannelMember]
+    let canMute: Bool
+    let canUnmute: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case members
+        case canMute = "can_mute"
+        case canUnmute = "can_unmute"
+    }
+}
+
 struct ChannelMember: Codable, Identifiable {
     let username: String
     let firstName: String?

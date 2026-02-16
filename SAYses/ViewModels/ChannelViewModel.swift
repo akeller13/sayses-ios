@@ -20,6 +20,8 @@ class ChannelViewModel: TrackingSSEDelegate {
     var canTriggerAlarm = true
     var members: [User] = []
     var channelMembers: [ChannelMember] = []
+    var canMuteMembers = false
+    var canUnmuteMembers = false
     var memberProfileImages: [String: UIImage] = [:]
     var connectedBluetoothDevice: String?
     var currentUserDisplayName: String?
@@ -155,13 +157,16 @@ class ChannelViewModel: TrackingSSEDelegate {
         }
 
         do {
-            let members = try await apiClient.fetchChannelMembers(
+            let response = try await apiClient.fetchChannelMembers(
                 subdomain: subdomain,
                 certificateHash: certificateHash,
                 mumbleChannelId: channel.id
             )
+            let members = response.members
             self.channelMembers = members
-            print("[ChannelViewModel] Loaded \(members.count) channel members from backend")
+            self.canMuteMembers = response.canMute
+            self.canUnmuteMembers = response.canUnmute
+            print("[ChannelViewModel] Loaded \(members.count) channel members from backend, canMute=\(response.canMute), canUnmute=\(response.canUnmute)")
 
             // Find own user and extract display name + role
             if let myUsername = mumbleService.credentials?.username {
@@ -279,6 +284,46 @@ class ChannelViewModel: TrackingSSEDelegate {
     func triggerAlarm() {
         // TODO: Trigger alarm via API
         print("Alarm triggered for channel: \(channel.name)")
+    }
+
+    func toggleMuteForMember(_ member: ChannelMember) async {
+        guard let subdomain = mumbleService.tenantSubdomain,
+              let certificateHash = mumbleService.credentials?.certificateHash else {
+            print("[ChannelViewModel] Cannot toggle mute: missing credentials")
+            return
+        }
+
+        let shouldMute = !member.isMuted
+
+        // Optimistic UI update
+        if let index = channelMembers.firstIndex(where: { $0.username == member.username }) {
+            channelMembers[index].isMuted = shouldMute
+        }
+
+        do {
+            if shouldMute {
+                try await apiClient.muteChannelUser(
+                    subdomain: subdomain,
+                    certificateHash: certificateHash,
+                    mumbleChannelId: channel.id,
+                    username: member.username
+                )
+            } else {
+                try await apiClient.unmuteChannelUser(
+                    subdomain: subdomain,
+                    certificateHash: certificateHash,
+                    mumbleChannelId: channel.id,
+                    username: member.username
+                )
+            }
+            print("[ChannelViewModel] Successfully \(shouldMute ? "muted" : "unmuted") \(member.username)")
+        } catch {
+            // Revert optimistic update on failure
+            if let index = channelMembers.firstIndex(where: { $0.username == member.username }) {
+                channelMembers[index].isMuted = !shouldMute
+            }
+            print("[ChannelViewModel] Failed to \(shouldMute ? "mute" : "unmute") \(member.username): \(error)")
+        }
     }
 
     /// Handle transmission mode change from settings/menu

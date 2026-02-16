@@ -40,11 +40,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Info") {
-                    LabeledContent("Version", value: "1.0.0")
-                    LabeledContent("Build", value: "1")
-                }
-
                 Section {
                     Button(role: .destructive, action: logout) {
                         HStack {

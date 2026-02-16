@@ -179,7 +179,12 @@ struct ChannelView: View {
                 channel: channel,
                 members: viewModel.members,
                 channelMembers: viewModel.channelMembers,
-                memberProfileImages: viewModel.memberProfileImages
+                memberProfileImages: viewModel.memberProfileImages,
+                canMute: viewModel.canMuteMembers,
+                canUnmute: viewModel.canUnmuteMembers,
+                onToggleMute: { member in
+                    Task { await viewModel.toggleMuteForMember(member) }
+                }
             )
         }
         .sheet(isPresented: $showTransmissionMode) {

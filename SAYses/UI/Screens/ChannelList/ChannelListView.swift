@@ -1188,11 +1188,10 @@ struct InfoView: View {
         NavigationStack {
             List {
                 Section("SAYses") {
-                    LabeledContent("Version", value: "1.0.0")
+                    LabeledContent("Version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))")
                 }
 
                 Section("Kontrollkanal") {
-                    LabeledContent("Latenz", value: formatLatency(mumbleService.latencyMs))
                     LabeledContent("Verschlüsselung", value: formatCipherSuite(mumbleService.tlsCipherSuite))
                 }
 

@@ -6,6 +6,9 @@ struct MembersSheet: View {
     let members: [User]
     let channelMembers: [ChannelMember]
     let memberProfileImages: [String: UIImage]
+    let canMute: Bool
+    let canUnmute: Bool
+    let onToggleMute: (ChannelMember) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var selectedMemberForMap: ChannelMember?
 
@@ -52,13 +55,31 @@ struct MembersSheet: View {
                                 .foregroundStyle(entry.onlineUser != nil ? .primary : .secondary)
 
                             if entry.member.isMuted {
-                                Image(systemName: "mic.slash.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
+                                if canUnmute {
+                                    Button { onToggleMute(entry.member) } label: {
+                                        Image(systemName: "mic.slash.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    Image(systemName: "mic.slash.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
                             } else {
-                                Image(systemName: "mic.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.green)
+                                if canMute {
+                                    Button { onToggleMute(entry.member) } label: {
+                                        Image(systemName: "mic.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.green)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    Image(systemName: "mic.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.green)
+                                }
                             }
                         }
 
@@ -154,6 +175,9 @@ struct MembersSheet: View {
             ChannelMember(username: "anna@demo", firstName: "Anna", lastName: "Schmidt", jobFunction: "Leiterin", roleName: "Teilnehmer", hasProfileImage: false, isMuted: true, latitude: nil, longitude: nil, positionTimestamp: nil),
             ChannelMember(username: "peter@demo", firstName: "Peter", lastName: "Müller", jobFunction: nil, roleName: nil, hasProfileImage: false, isMuted: false, latitude: nil, longitude: nil, positionTimestamp: nil),
         ],
-        memberProfileImages: [:]
+        memberProfileImages: [:],
+        canMute: true,
+        canUnmute: true,
+        onToggleMute: { _ in }
     )
 }
