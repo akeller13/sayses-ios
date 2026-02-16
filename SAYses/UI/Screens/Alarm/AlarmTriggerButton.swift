@@ -90,7 +90,7 @@ struct AlarmTriggerButton: View {
                 }
             }
         }
-        .frame(height: 100)
+        .frame(height: 70)
         .shadow(color: isPressed && isEnabled ? Color.alarmRed.opacity(0.5) : .clear, radius: 10)
         .gesture(
             DragGesture(minimumDistance: 0)

@@ -10,6 +10,7 @@
 		02C181DF0FC28535908EA5C0 /* ChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F9FC7B92D0601D7D61BECA /* ChannelView.swift */; };
 		SSE001002003004005006CC /* ChannelUpdatesSSE.swift in Sources */ = {isa = PBXBuildFile; fileRef = SSE001002003004005006BB /* ChannelUpdatesSSE.swift */; };
 		ALARMSSE00100200300400CC /* AlarmUpdatesSSE.swift in Sources */ = {isa = PBXBuildFile; fileRef = ALARMSSE00100200300400BB /* AlarmUpdatesSSE.swift */; };
+		6F37975AACBE784AB45C3B88 /* TrackingSSE.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF4EF366272BB18A88CF6979 /* TrackingSSE.swift */; };
 		GPS001002003004005006CC /* BufferedPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = GPS001002003004005006BB /* BufferedPosition.swift */; };
 		GPS001002003004005006EE /* PositionBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = GPS001002003004005006DD /* PositionBuffer.swift */; };
 		GPS001002003004005006GG /* PositionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = GPS001002003004005006FF /* PositionTracker.swift */; };
@@ -103,6 +104,7 @@
 		CACHE001002003004005006DD /* ChannelImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelImageCache.swift; sourceTree = "<group>"; };
 		SSE001002003004005006BB /* ChannelUpdatesSSE.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelUpdatesSSE.swift; sourceTree = "<group>"; };
 		ALARMSSE00100200300400BB /* AlarmUpdatesSSE.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmUpdatesSSE.swift; sourceTree = "<group>"; };
+		BF4EF366272BB18A88CF6979 /* TrackingSSE.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingSSE.swift; sourceTree = "<group>"; };
 		GPS001002003004005006BB /* BufferedPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BufferedPosition.swift; sourceTree = "<group>"; };
 		GPS001002003004005006DD /* PositionBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionBuffer.swift; sourceTree = "<group>"; };
 		GPS001002003004005006FF /* PositionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionTracker.swift; sourceTree = "<group>"; };
@@ -458,6 +460,7 @@
 			isa = PBXGroup;
 			children = (
 				ALARMSSE00100200300400BB /* AlarmUpdatesSSE.swift */,
+				BF4EF366272BB18A88CF6979 /* TrackingSSE.swift */,
 				SSE001002003004005006BB /* ChannelUpdatesSSE.swift */,
 			);
 			path = SSE;
@@ -785,6 +788,7 @@
 				36180996E67B2164A094A63F /* MumbleService.swift in Sources */,
 				C3E8F78C6F5384270C57F2BE /* MumbleTcpConnection.swift in Sources */,
 				ALARMSSE00100200300400CC /* AlarmUpdatesSSE.swift in Sources */,
+				6F37975AACBE784AB45C3B88 /* TrackingSSE.swift in Sources */,
 				SSE001002003004005006CC /* ChannelUpdatesSSE.swift in Sources */,
 				AED0877BCDDE2ACEBB729FD2 /* PttButton.swift in Sources */,
 				AD26D985FB371B706556AA6B /* RootView.swift in Sources */,

@@ -26,6 +26,8 @@ struct ChannelView: View {
     @State private var showAlarmCountdown = false
     @State private var showPostAlarmRecording = false
     @State private var remainingRecordingTime = 0
+    @State private var userDisplayName: String?
+    @State private var userRole: String?
 
     init(channel: Channel, mumbleService: MumbleService) {
         self.channel = channel
@@ -47,8 +49,28 @@ struct ChannelView: View {
                     bluetoothIndicator(deviceName: deviceName)
                 }
 
-                // PTT Button or Listen-Only indicator - centered in remaining space
-                Spacer()
+                // Alarm button + PTT Button
+                Spacer(minLength: 15)
+
+                if mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized {
+                    AlarmTriggerButton(
+                        isEnabled: !mumbleService.hasOwnOpenAlarm,
+                        holdDuration: Double(mumbleService.alarmSettings.alarmHoldDuration),
+                        onHoldStart: {
+                            mumbleService.startAlarmWarmUp()
+                        },
+                        onHoldComplete: {
+                            mumbleService.startVoiceRecording()
+                            showAlarmCountdown = true
+                        },
+                        onHoldCancel: {
+                            mumbleService.cancelAlarmWarmUp()
+                        }
+                    )
+                    .padding(.horizontal, 16)
+                }
+
+                Spacer(minLength: 120)
 
                 if viewModel.canSpeak {
                     PttButton(
@@ -102,17 +124,32 @@ struct ChannelView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    if confirmLeaveChannel {
-                        leaveToDispatcher = false
-                        showLeaveConfirmation = true
-                    } else {
-                        viewModel.leaveChannel()
-                        dismiss()
+                HStack(spacing: 8) {
+                    Button {
+                        if confirmLeaveChannel {
+                            leaveToDispatcher = false
+                            showLeaveConfirmation = true
+                        } else {
+                            viewModel.leaveChannel()
+                            dismiss()
+                        }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.title2)
                     }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.title2)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        if let name = userDisplayName {
+                            Text(name)
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                        }
+                        if let role = userRole {
+                            Text("Kanalrolle: \(role)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
 
@@ -154,26 +191,6 @@ struct ChannelView: View {
         .sheet(isPresented: $showAudioCast) {
             AudioCastScreen(channel: channel, mumbleService: mumbleService)
         }
-        .safeAreaInset(edge: .bottom) {
-            if mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized {
-                AlarmTriggerButton(
-                    isEnabled: !mumbleService.hasOwnOpenAlarm,
-                    holdDuration: Double(mumbleService.alarmSettings.alarmHoldDuration),
-                    onHoldStart: {
-                        mumbleService.startAlarmWarmUp()
-                    },
-                    onHoldComplete: {
-                        mumbleService.startVoiceRecording()
-                        showAlarmCountdown = true
-                    },
-                    onHoldCancel: {
-                        mumbleService.cancelAlarmWarmUp()
-                    }
-                )
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-            }
-        }
         .fullScreenCover(isPresented: $showAlarmCountdown) {
             AlarmCountdownDialog(
                 countdownDuration: mumbleService.alarmSettings.alarmCountdownDuration,
@@ -205,6 +222,8 @@ struct ChannelView: View {
         }
         .task {
             await viewModel.joinChannel()
+            userDisplayName = viewModel.currentUserDisplayName ?? mumbleService.currentUserProfile?.effectiveName
+            userRole = viewModel.currentUserRole
         }
         .onAppear {
             if keepAwake {

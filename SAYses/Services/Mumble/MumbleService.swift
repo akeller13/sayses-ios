@@ -142,6 +142,7 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
 
     // Audio playback state
     private var isMixedPlaybackStarted = false
+    var isOutputMuted = false
 
     // Tenant filtering
     private var _tenantSubdomain: String?
@@ -1669,6 +1670,11 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     func setSelfDeaf(_ deaf: Bool) {
         print("[MumbleService] Self deaf: \(deaf)")
         mumbleConnection.setSelfDeaf(deaf)
+    }
+
+    func setOutputMuted(_ muted: Bool) {
+        print("[MumbleService] Output muted: \(muted)")
+        isOutputMuted = muted
     }
 
     // MARK: - Alarm
@@ -3474,6 +3480,9 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
     }
 
     func audioReceived(session: UInt32, pcmData: UnsafePointer<Int16>, frames: Int, sequence: Int64) {
+        // Skip playback when output is muted (speaker off) — recording/transmission stays active
+        guard !isOutputMuted else { return }
+
         // Pass decoded audio to C++ engine for per-user buffering, float mixing, and crossfade
         audioService.addUserAudio(userId: session, samples: pcmData, frames: frames, sequence: sequence)
 

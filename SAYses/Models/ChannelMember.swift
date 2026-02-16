@@ -5,12 +5,54 @@ struct ChannelMember: Codable, Identifiable {
     let firstName: String?
     let lastName: String?
     let jobFunction: String?
+    let roleName: String?
     let hasProfileImage: Bool
-    let latitude: Double?
-    let longitude: Double?
-    let positionTimestamp: String?
+    var isMuted: Bool
+    var latitude: Double?
+    var longitude: Double?
+    var positionTimestamp: String?
 
     var id: String { username }
+
+    enum CodingKeys: String, CodingKey {
+        case username
+        case firstName = "first_name"
+        case lastName = "last_name"
+        case jobFunction = "job_function"
+        case roleName = "role_name"
+        case hasProfileImage = "has_profile_image"
+        case isMuted = "is_muted"
+        case latitude
+        case longitude
+        case positionTimestamp = "position_timestamp"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        username = try container.decode(String.self, forKey: .username)
+        firstName = try container.decodeIfPresent(String.self, forKey: .firstName)
+        lastName = try container.decodeIfPresent(String.self, forKey: .lastName)
+        jobFunction = try container.decodeIfPresent(String.self, forKey: .jobFunction)
+        roleName = try container.decodeIfPresent(String.self, forKey: .roleName)
+        hasProfileImage = try container.decode(Bool.self, forKey: .hasProfileImage)
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        latitude = try container.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try container.decodeIfPresent(Double.self, forKey: .longitude)
+        positionTimestamp = try container.decodeIfPresent(String.self, forKey: .positionTimestamp)
+    }
+
+    init(username: String, firstName: String?, lastName: String?, jobFunction: String?, roleName: String?, hasProfileImage: Bool, isMuted: Bool = false, latitude: Double?, longitude: Double?, positionTimestamp: String?) {
+        self.username = username
+        self.firstName = firstName
+        self.lastName = lastName
+        self.jobFunction = jobFunction
+        self.roleName = roleName
+        self.hasProfileImage = hasProfileImage
+        self.isMuted = isMuted
+        self.latitude = latitude
+        self.longitude = longitude
+        self.positionTimestamp = positionTimestamp
+    }
 
     /// Username without @tenant suffix for display
     var shortUsername: String {
@@ -36,9 +78,13 @@ struct ChannelMember: Codable, Identifiable {
 
     /// Relative age of the last position (e.g. "2h 35min", "3T 5h 12min")
     var positionAge: String? {
-        guard let timestamp = positionTimestamp else { return nil }
+        guard var timestamp = positionTimestamp else { return nil }
 
-        // Backend sends Python isoformat without timezone (e.g. "2026-02-07T19:09:57.123456")
+        // Strip trailing "Z" — SSE sends it, members endpoint does not. Both are UTC.
+        if timestamp.hasSuffix("Z") {
+            timestamp = String(timestamp.dropLast())
+        }
+
         let df = DateFormatter()
         df.locale = Locale(identifier: "en_US_POSIX")
         df.timeZone = TimeZone(identifier: "UTC")
@@ -61,19 +107,10 @@ struct ChannelMember: Codable, Identifiable {
             return "\(days)T \(hours)h \(minutes)min"
         } else if hours > 0 {
             return "\(hours)h \(minutes)min"
-        } else {
+        } else if minutes > 0 {
             return "\(minutes)min"
+        } else {
+            return "\(seconds)s"
         }
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case username
-        case firstName = "first_name"
-        case lastName = "last_name"
-        case jobFunction = "job_function"
-        case hasProfileImage = "has_profile_image"
-        case latitude
-        case longitude
-        case positionTimestamp = "position_timestamp"
     }
 }

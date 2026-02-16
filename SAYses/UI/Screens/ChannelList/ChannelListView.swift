@@ -123,31 +123,6 @@ struct ChannelListView: View {
                     }
                 }
             }
-            // Alarm button - using safeAreaInset to not interfere with NavigationStack
-            // Only show on channels tab, not on dispatcher tab
-            .safeAreaInset(edge: .bottom) {
-                if selectedTab == .channels && navigationPath.isEmpty && mumbleService.userPermissions.canTriggerAlarm && mumbleService.connectionState == .synchronized {
-                    AlarmTriggerButton(
-                        isEnabled: !mumbleService.hasOwnOpenAlarm,
-                        holdDuration: Double(mumbleService.alarmSettings.alarmHoldDuration),
-                        onHoldStart: {
-                            // Phase 1 start: Begin GPS warm-up
-                            mumbleService.startAlarmWarmUp()
-                        },
-                        onHoldComplete: {
-                            // Phase 1 complete: Start voice recording and show countdown
-                            mumbleService.startVoiceRecording()
-                            showAlarmCountdown = true
-                        },
-                        onHoldCancel: {
-                            // User released early: Cancel warm-up
-                            mumbleService.cancelAlarmWarmUp()
-                        }
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-                }
-            }
 
             // Offline status banner at bottom
             OfflineStatusBanner(secondsUntilRetry: mumbleService.reconnectCountdown)

@@ -46,9 +46,21 @@ struct MembersSheet: View {
 
                     // Name and function
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.member.displayName)
-                            .font(.body)
-                            .foregroundStyle(entry.onlineUser != nil ? .primary : .secondary)
+                        HStack(spacing: 4) {
+                            Text(entry.member.displayName)
+                                .font(.body)
+                                .foregroundStyle(entry.onlineUser != nil ? .primary : .secondary)
+
+                            if entry.member.isMuted {
+                                Image(systemName: "mic.slash.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            } else {
+                                Image(systemName: "mic.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+                        }
 
                         if let jobFunction = entry.member.jobFunction, !jobFunction.isEmpty {
                             Text(jobFunction)
@@ -138,9 +150,9 @@ struct MembersSheet: View {
             User(session: 2, channelId: 1, name: "anna@demo", isMuted: true),
         ],
         channelMembers: [
-            ChannelMember(username: "max@demo", firstName: "Max", lastName: "Mustermann", jobFunction: "Techniker", hasProfileImage: false, latitude: 49.445, longitude: 7.772, positionTimestamp: "2024-01-01T12:00:00"),
-            ChannelMember(username: "anna@demo", firstName: "Anna", lastName: "Schmidt", jobFunction: "Leiterin", hasProfileImage: false, latitude: nil, longitude: nil, positionTimestamp: nil),
-            ChannelMember(username: "peter@demo", firstName: "Peter", lastName: "Müller", jobFunction: nil, hasProfileImage: false, latitude: nil, longitude: nil, positionTimestamp: nil),
+            ChannelMember(username: "max@demo", firstName: "Max", lastName: "Mustermann", jobFunction: "Techniker", roleName: "Moderator", hasProfileImage: false, isMuted: false, latitude: 49.445, longitude: 7.772, positionTimestamp: "2024-01-01T12:00:00"),
+            ChannelMember(username: "anna@demo", firstName: "Anna", lastName: "Schmidt", jobFunction: "Leiterin", roleName: "Teilnehmer", hasProfileImage: false, isMuted: true, latitude: nil, longitude: nil, positionTimestamp: nil),
+            ChannelMember(username: "peter@demo", firstName: "Peter", lastName: "Müller", jobFunction: nil, roleName: nil, hasProfileImage: false, isMuted: false, latitude: nil, longitude: nil, positionTimestamp: nil),
         ],
         memberProfileImages: [:]
     )

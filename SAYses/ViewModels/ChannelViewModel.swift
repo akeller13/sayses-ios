@@ -4,12 +4,13 @@ import Combine
 import SwiftUI
 
 @Observable
-class ChannelViewModel {
+class ChannelViewModel: TrackingSSEDelegate {
     let channel: Channel
     private let mumbleService: MumbleService
     private let apiClient = SemparaAPIClient()
     private var cancellables = Set<AnyCancellable>()
     private var blePttManager: BlePttButtonManager?
+    private var trackingSSE: TrackingSSE?
 
     var isTransmitting = false
     var audioLevel: Float = 0
@@ -21,6 +22,8 @@ class ChannelViewModel {
     var channelMembers: [ChannelMember] = []
     var memberProfileImages: [String: UIImage] = [:]
     var connectedBluetoothDevice: String?
+    var currentUserDisplayName: String?
+    var currentUserRole: String?
 
     // Read transmission mode from AppStorage
     var transmissionMode: TransmissionMode {
@@ -139,6 +142,9 @@ class ChannelViewModel {
 
         // Load channel members from backend (non-blocking)
         await loadChannelMembers()
+
+        // Start tracking SSE for real-time position updates
+        startTrackingSSE()
     }
 
     private func loadChannelMembers() async {
@@ -156,6 +162,17 @@ class ChannelViewModel {
             )
             self.channelMembers = members
             print("[ChannelViewModel] Loaded \(members.count) channel members from backend")
+
+            // Find own user and extract display name + role
+            if let myUsername = mumbleService.credentials?.username {
+                let ownMember = members.first { $0.username.lowercased() == myUsername.lowercased() }
+                    ?? members.first { $0.username.components(separatedBy: "@").first?.lowercased() == myUsername.components(separatedBy: "@").first?.lowercased() }
+                if let me = ownMember {
+                    self.currentUserDisplayName = me.displayName
+                    self.currentUserRole = me.roleName
+                    print("[ChannelViewModel] Own user: \(me.displayName), role: \(me.roleName ?? "none")")
+                }
+            }
 
             // Load profile images for members that have one
             await loadMemberProfileImages(members: members, subdomain: subdomain, certificateHash: certificateHash)
@@ -196,6 +213,8 @@ class ChannelViewModel {
     func leaveChannel() {
         stopTransmittingForce()
         blePttManager?.release()
+        trackingSSE?.stop()
+        trackingSSE = nil
         // Leave channel and return to tenant channel
         mumbleService.leaveChannel()
     }
@@ -254,7 +273,7 @@ class ChannelViewModel {
 
     func toggleMute() {
         isMuted.toggle()
-        mumbleService.setSelfDeaf(isMuted)
+        mumbleService.setOutputMuted(isMuted)
     }
 
     func triggerAlarm() {
@@ -312,6 +331,42 @@ class ChannelViewModel {
             }
         }
         // VAD mode: do nothing
+    }
+
+    // MARK: - Tracking SSE
+
+    private func startTrackingSSE() {
+        guard let subdomain = mumbleService.tenantSubdomain,
+              let certificateHash = mumbleService.credentials?.certificateHash else {
+            print("[ChannelViewModel] Cannot start tracking SSE: missing credentials")
+            return
+        }
+
+        let sse = TrackingSSE(subdomain: subdomain, certificateHash: certificateHash, channelId: channel.id)
+        sse.delegate = self
+        sse.start()
+        trackingSSE = sse
+        print("[ChannelViewModel] Tracking SSE started for channel \(channel.id)")
+    }
+
+    func positionsUpdated(_ positions: [TrackingPosition]) {
+        // Backend sends positions sorted by recorded_at DESC (newest first).
+        // Only apply the first (newest) position per user to avoid overwriting with older data.
+        var updatedUsernames = Set<String>()
+        for position in positions {
+            guard !updatedUsernames.contains(position.username) else { continue }
+
+            let index = channelMembers.firstIndex(where: { $0.username == position.username })
+                ?? channelMembers.firstIndex(where: {
+                    $0.username.components(separatedBy: "@").first == position.username
+                })
+            if let index {
+                channelMembers[index].latitude = position.latitude
+                channelMembers[index].longitude = position.longitude
+                channelMembers[index].positionTimestamp = position.recordedAt
+                updatedUsernames.insert(position.username)
+            }
+        }
     }
 
     // MARK: - Private
