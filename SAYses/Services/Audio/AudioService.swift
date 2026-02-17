@@ -44,16 +44,30 @@ class AudioService: ObservableObject {
             name: .audioSessionInterruptionEnded,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioRouteChanged),
+            name: .audioRouteChanged,
+            object: nil
+        )
     }
 
     @objc private func handleAudioInterruptionEnded() {
         NSLog("[AudioService] Audio interruption ended - restarting audio engine")
+        reinitializeEngine(reason: "interruption ended")
+    }
 
+    @objc private func handleAudioRouteChanged() {
+        NSLog("[AudioService] Audio route changed - reinitializing engine for new sample rate")
+        reinitializeEngine(reason: "route changed")
+    }
+
+    private func reinitializeEngine(reason: String) {
         // Ensure all work happens on main thread for thread safety
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            // Recreate the audio engine (Audio Units need to be restarted after interruption)
+            // Recreate the audio engine (Audio Units need to be restarted after interruption/route change)
             let wasCapturing = self.isCapturing
             let wasPlaying = self.isPlaying
             let savedCaptureCallback = self.captureCallback
@@ -66,13 +80,13 @@ class AudioService: ObservableObject {
                 self.audioEngine?.stopPlayback()
             }
 
-            // Recreate the audio engine
+            // Recreate the audio engine (reads new sample rate from AVAudioSession)
             self.audioEngine = nil
             self.setupAudioEngine()
 
             // Restart capture if it was running
             if wasCapturing, let callback = savedCaptureCallback {
-                NSLog("[AudioService] Restarting capture after interruption")
+                NSLog("[AudioService] Restarting capture after %@", reason)
                 self.isCapturing = false  // Reset state so startCapture works
                 self.captureCallback = callback
                 self.restartCaptureInternal()
@@ -80,7 +94,7 @@ class AudioService: ObservableObject {
 
             // Restart playback if it was running
             if wasPlaying {
-                NSLog("[AudioService] Restarting playback after interruption")
+                NSLog("[AudioService] Restarting playback after %@", reason)
                 self.isPlaying = false  // Reset state so startPlayback works
                 _ = self.startMixedPlayback()
             }

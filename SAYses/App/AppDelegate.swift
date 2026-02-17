@@ -4,6 +4,7 @@ import AVFoundation
 
 extension Notification.Name {
     static let audioSessionInterruptionEnded = Notification.Name("audioSessionInterruptionEnded")
+    static let audioRouteChanged = Notification.Name("audioRouteChanged")
 }
 
 class AppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate {
@@ -124,13 +125,24 @@ class AppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate {
             return
         }
 
+        let session = AVAudioSession.sharedInstance()
+        let currentRoute = session.currentRoute
+        let outputPort = currentRoute.outputs.first?.portType.rawValue ?? "unknown"
+        let inputPort = currentRoute.inputs.first?.portType.rawValue ?? "unknown"
+        let sampleRate = session.sampleRate
+
         switch reason {
         case .oldDeviceUnavailable:
-            print("[Audio] Audio device disconnected (e.g., headphones unplugged)")
-            // Audio continues through speaker
+            print("[Audio] Audio device disconnected — input=\(inputPort), output=\(outputPort), sampleRate=\(sampleRate)")
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .audioRouteChanged, object: nil)
+            }
 
         case .newDeviceAvailable:
-            print("[Audio] New audio device connected")
+            print("[Audio] New audio device connected — input=\(inputPort), output=\(outputPort), sampleRate=\(sampleRate)")
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .audioRouteChanged, object: nil)
+            }
 
         case .categoryChange:
             print("[Audio] Audio category changed")
