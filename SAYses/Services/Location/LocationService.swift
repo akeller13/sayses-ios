@@ -234,8 +234,7 @@ extension LocationService: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
 
-        NSLog("[LocationService] Location update: %.6f, %.6f (accuracy: %.1fm)",
-              location.coordinate.latitude, location.coordinate.longitude, location.horizontalAccuracy)
+        // NSLog suppressed — fires ~1/s, actual sends are logged in PositionTracker
 
         currentLocation = location
 

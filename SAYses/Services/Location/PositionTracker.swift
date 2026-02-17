@@ -287,14 +287,7 @@ class PositionTracker: ObservableObject {
             }
         }
 
-        // Position verarbeiten
-        NSLog("[PositionTracker] Processing position: %.6f, %.6f (accuracy: %.1fm, speed: %.1f km/h, mode: %@, interval: %.0fs)",
-              location.coordinate.latitude,
-              location.coordinate.longitude,
-              location.horizontalAccuracy,
-              location.speed >= 0 ? location.speed * 3.6 : -1,
-              mode.description,
-              interval)
+        // Position verarbeiten (log suppressed — actual sends are logged in sendBatch)
 
         lastPosition = location
         lastPositionTime = Date()
@@ -323,8 +316,6 @@ class PositionTracker: ObservableObject {
 
         await buffer.save(sessionId: sessionId, position: positionData)
         await updatePendingCount()
-
-        NSLog("[PositionTracker] Position buffered: session=%@, mode=%@", sessionId, mode.description)
     }
 
     // MARK: - Frequency Management
