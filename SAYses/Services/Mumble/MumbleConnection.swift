@@ -324,15 +324,16 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
             print("[MumbleConnection] User stored: \(state.name) (session=\(state.session), channel=\(resolvedChannelId))")
         } else if let existing = existingUser {
             // Update existing user (channel change, mute state, etc.)
+            // Use has* flags to distinguish "field not present" (keep existing) from "field = false" (explicitly cleared)
             let user = User(
                 session: existing.session,
                 channelId: resolvedChannelId,
                 name: existing.name,
-                isMuted: state.mute || existing.isMuted,
-                isDeafened: state.deaf || existing.isDeafened,
-                isSelfMuted: state.selfMute || existing.isSelfMuted,
-                isSelfDeafened: state.selfDeaf || existing.isSelfDeafened,
-                isSuppressed: state.suppress || existing.isSuppressed
+                isMuted: state.hasMute ? state.mute : existing.isMuted,
+                isDeafened: state.hasDeaf ? state.deaf : existing.isDeafened,
+                isSelfMuted: state.hasSelfMute ? state.selfMute : existing.isSelfMuted,
+                isSelfDeafened: state.hasSelfDeaf ? state.selfDeaf : existing.isSelfDeafened,
+                isSuppressed: state.hasSuppress ? state.suppress : existing.isSuppressed
             )
             users[state.session] = user
             print("[MumbleConnection] User updated: \(existing.name) (session=\(state.session), channel=\(resolvedChannelId))")

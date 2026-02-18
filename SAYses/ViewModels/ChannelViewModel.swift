@@ -40,6 +40,35 @@ class ChannelViewModel: TrackingSSEDelegate {
         observeUsers()
         observeAudioLevel()
         observeVoiceDetection()
+        observeChannelPermissions()
+    }
+
+    private func observeChannelPermissions() {
+        // Observe real-time suppress state changes for the current user.
+        // When a moderator mutes/unmutes a user, the backend calls suppress_user()
+        // which sends a UserState update via Mumble to all clients.
+        mumbleService.$users
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] (users: [User]) in
+                guard let self = self else { return }
+                let localSession = self.mumbleService.localSession
+                guard localSession > 0 else { return }
+                guard let currentUser = users.first(where: { $0.session == localSession }) else { return }
+
+                let shouldCanSpeak = !currentUser.isSuppressed
+                if self.canSpeak != shouldCanSpeak {
+                    NSLog("[ChannelViewModel] Suppress state changed: isSuppressed=\(currentUser.isSuppressed) -> canSpeak \(self.canSpeak) -> \(shouldCanSpeak)")
+                    self.canSpeak = shouldCanSpeak
+                    // Stop transmitting if speak permission was revoked
+                    if !shouldCanSpeak && self.isTransmitting {
+                        self.isTransmitting = false
+                        self.audioLevel = 0
+                        self.mumbleService.stopTransmitting()
+                        NSLog("[ChannelViewModel] Stopped transmission - user suppressed")
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func observeUsers() {
@@ -166,7 +195,8 @@ class ChannelViewModel: TrackingSSEDelegate {
             self.channelMembers = members
             self.canMuteMembers = response.canMute
             self.canUnmuteMembers = response.canUnmute
-            print("[ChannelViewModel] Loaded \(members.count) channel members from backend, canMute=\(response.canMute), canUnmute=\(response.canUnmute)")
+            self.canSpeak = response.canSpeak
+            print("[ChannelViewModel] Loaded \(members.count) channel members from backend, canMute=\(response.canMute), canUnmute=\(response.canUnmute), canSpeak=\(response.canSpeak)")
 
             // Find own user and extract display name + role
             if let myUsername = mumbleService.credentials?.username {

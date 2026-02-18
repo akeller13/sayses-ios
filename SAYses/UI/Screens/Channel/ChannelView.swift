@@ -410,7 +410,7 @@ struct ChannelView: View {
         VStack(spacing: 16) {
             ZStack {
                 Circle()
-                    .fill(Color.gray)
+                    .fill(Color.gray.opacity(0.3))
                     .frame(width: 264, height: 264)
 
                 Image(systemName: "ear.fill")

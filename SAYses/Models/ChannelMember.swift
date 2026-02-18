@@ -4,11 +4,21 @@ struct ChannelMembersResponse: Codable {
     let members: [ChannelMember]
     let canMute: Bool
     let canUnmute: Bool
+    let canSpeak: Bool
 
     enum CodingKeys: String, CodingKey {
         case members
         case canMute = "can_mute"
         case canUnmute = "can_unmute"
+        case canSpeak = "can_speak"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        members = try container.decode([ChannelMember].self, forKey: .members)
+        canMute = try container.decode(Bool.self, forKey: .canMute)
+        canUnmute = try container.decode(Bool.self, forKey: .canUnmute)
+        canSpeak = try container.decodeIfPresent(Bool.self, forKey: .canSpeak) ?? true
     }
 }
 

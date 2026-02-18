@@ -373,6 +373,11 @@ struct ParsedUserState {
     var selfDeaf: Bool = false
     var prioritySpeaker: Bool = false
     var recording: Bool = false
+    var hasMute: Bool = false
+    var hasDeaf: Bool = false
+    var hasSuppress: Bool = false
+    var hasSelfMute: Bool = false
+    var hasSelfDeaf: Bool = false
 }
 
 struct ParsedUserRemove {
@@ -486,11 +491,11 @@ struct MumbleParsers {
                     result.channelId = channelId
                     result.hasChannelId = true
                 }
-            case 6: result.mute = decoder.readBool() ?? false
-            case 7: result.deaf = decoder.readBool() ?? false
-            case 8: result.suppress = decoder.readBool() ?? false
-            case 9: result.selfMute = decoder.readBool() ?? false
-            case 10: result.selfDeaf = decoder.readBool() ?? false
+            case 6: result.mute = decoder.readBool() ?? false; result.hasMute = true
+            case 7: result.deaf = decoder.readBool() ?? false; result.hasDeaf = true
+            case 8: result.suppress = decoder.readBool() ?? false; result.hasSuppress = true
+            case 9: result.selfMute = decoder.readBool() ?? false; result.hasSelfMute = true
+            case 10: result.selfDeaf = decoder.readBool() ?? false; result.hasSelfDeaf = true
             case 18: result.prioritySpeaker = decoder.readBool() ?? false
             case 19: result.recording = decoder.readBool() ?? false
             default: decoder.skip(wireType: wireType)
