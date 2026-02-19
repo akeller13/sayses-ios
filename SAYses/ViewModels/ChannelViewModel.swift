@@ -78,6 +78,20 @@ class ChannelViewModel: TrackingSSEDelegate {
             .sink { [weak self] users in
                 guard let self = self else { return }
                 self.members = users.filter { $0.channelId == self.channel.id }
+
+                // Sync suppress state from all Mumble users to channelMembers
+                // (users may be in a different Mumble channel but still assigned to this backend channel)
+                for user in users {
+                    let userBase = user.name.components(separatedBy: "@").first ?? user.name
+                    let index = self.channelMembers.firstIndex(where: { $0.username == user.name })
+                        ?? self.channelMembers.firstIndex(where: {
+                            $0.username.components(separatedBy: "@").first == userBase
+                        })
+                    if let index, self.channelMembers[index].isMuted != user.isSuppressed {
+                        NSLog("[ChannelViewModel] Syncing mute state for %@: isMuted %d -> %d", user.name, self.channelMembers[index].isMuted ? 1 : 0, user.isSuppressed ? 1 : 0)
+                        self.channelMembers[index].isMuted = user.isSuppressed
+                    }
+                }
             }
             .store(in: &cancellables)
     }
@@ -176,6 +190,11 @@ class ChannelViewModel: TrackingSSEDelegate {
 
         // Start tracking SSE for real-time position updates
         startTrackingSSE()
+    }
+
+    /// Reload channel members from backend (called when MembersSheet opens)
+    func reloadChannelMembers() async {
+        await loadChannelMembers()
     }
 
     private func loadChannelMembers() async {

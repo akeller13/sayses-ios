@@ -121,7 +121,7 @@ struct MembersSheet: View {
 
                             // Online/offline indicator
                             Circle()
-                                .fill(entry.onlineUser != nil ? Color.green : Color.gray.opacity(0.4))
+                                .fill(entry.onlineUser != nil ? Color.green : Color.red)
                                 .frame(width: 10, height: 10)
                         }
 

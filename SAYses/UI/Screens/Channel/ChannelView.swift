@@ -186,6 +186,9 @@ struct ChannelView: View {
                     Task { await viewModel.toggleMuteForMember(member) }
                 }
             )
+            .task {
+                await viewModel.reloadChannelMembers()
+            }
         }
         .sheet(isPresented: $showTransmissionMode) {
             TransmissionModeSheet()

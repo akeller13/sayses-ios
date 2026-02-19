@@ -336,6 +336,9 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
                 isSuppressed: state.hasSuppress ? state.suppress : existing.isSuppressed
             )
             users[state.session] = user
+            if user.isSuppressed != existing.isSuppressed {
+                NSLog("[MumbleConnection] Suppress changed for %@: %d -> %d (hasSuppress=%d)", existing.name, existing.isSuppressed ? 1 : 0, user.isSuppressed ? 1 : 0, state.hasSuppress ? 1 : 0)
+            }
             print("[MumbleConnection] User updated: \(existing.name) (session=\(state.session), channel=\(resolvedChannelId))")
         }
         // If no name and no existing user, ignore (incomplete user state)
