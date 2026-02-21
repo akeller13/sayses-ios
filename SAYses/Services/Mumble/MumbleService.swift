@@ -881,6 +881,10 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         wasKicked = false
         ghostKickMessage = nil
 
+        // Reset Opus codec state to avoid accumulated errors after reconnect
+        opusCodec?.reset()
+        NSLog("[MumbleService] Opus codec reset after reconnect")
+
         // Start hourly settings refresh
         startHourlySettingsRefresh()
 
@@ -1152,6 +1156,10 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         print("[MumbleService] === CONNECTION LOST ===")
         print("[MumbleService]   reason: \(reason)")
         logReconnectState("onConnectionLost entry")
+
+        // Stop audio to ensure clean restart after reconnect
+        stopTransmitting()
+        stopAudioPlayback()
 
         // Stop SSE connections (will be restarted on reconnect)
         stopChannelUpdatesSSE()

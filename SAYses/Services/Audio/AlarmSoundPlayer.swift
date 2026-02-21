@@ -263,6 +263,8 @@ class AlarmSoundPlayer: ObservableObject {
             // Keep .playAndRecord to not break audio capture — just add .duckOthers
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .duckOthers])
             try session.setActive(true)
+            // setCategory() resets the output port override — re-apply only if no headset
+            try session.enforceSpeakerIfNoExternalOutput()
             print("[AlarmSoundPlayer] Audio session configured (playAndRecord preserved)")
         } catch {
             print("[AlarmSoundPlayer] Failed to configure audio session: \(error)")
@@ -274,6 +276,8 @@ class AlarmSoundPlayer: ObservableObject {
             let session = AVAudioSession.sharedInstance()
             // Restore original session without duckOthers
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
+            // setCategory() resets the output port override — re-apply only if no headset
+            try session.enforceSpeakerIfNoExternalOutput()
             print("[AlarmSoundPlayer] Audio session restored")
         } catch {
             print("[AlarmSoundPlayer] Failed to restore audio session: \(error)")

@@ -7,6 +7,28 @@ extension Notification.Name {
     static let audioRouteChanged = Notification.Name("audioRouteChanged")
 }
 
+extension AVAudioSession {
+    /// Routes audio to speaker ONLY if no external output (headset, Bluetooth) is connected.
+    /// If a headset/Bluetooth device is active, leaves the route unchanged.
+    func enforceSpeakerIfNoExternalOutput() throws {
+        let hasExternalOutput = currentRoute.outputs.contains { port in
+            port.portType == .headphones ||
+            port.portType == .bluetoothA2DP ||
+            port.portType == .bluetoothHFP ||
+            port.portType == .bluetoothLE ||
+            port.portType == .carAudio ||
+            port.portType == .airPlay
+        }
+
+        if hasExternalOutput {
+            print("[Audio] External output detected (\(currentRoute.outputs.first?.portType.rawValue ?? "?")), keeping current route")
+        } else {
+            try overrideOutputAudioPort(.speaker)
+            print("[Audio] No external output — routing to speaker")
+        }
+    }
+}
+
 class AppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate {
 
     private var voipRegistry: PKPushRegistry?
@@ -44,8 +66,8 @@ class AppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate {
             try session.setPreferredIOBufferDuration(0.01)  // 10ms buffer
             try session.setActive(true)  // WICHTIG: Audio-Session aktivieren!
 
-            // Erzwinge Wiedergabe über den Lautsprecher (nicht Telefonhörer)
-            try session.overrideOutputAudioPort(.speaker)
+            // Lautsprecher nur wenn kein Headset/Bluetooth verbunden (sonst Telefonhörer)
+            try session.enforceSpeakerIfNoExternalOutput()
 
             print("Audio session configured and activated successfully")
             print("Audio output route: \(session.currentRoute.outputs.first?.portType.rawValue ?? "unknown")")
@@ -156,7 +178,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setActive(true, options: .notifyOthersOnDeactivation)
-            try session.overrideOutputAudioPort(.speaker)
+            try session.enforceSpeakerIfNoExternalOutput()
             print("[Audio] Audio session reactivated successfully")
         } catch {
             print("[Audio] Failed to reactivate audio session: \(error)")
@@ -167,7 +189,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setActive(true, options: .notifyOthersOnDeactivation)
-            try session.overrideOutputAudioPort(.speaker)
+            try session.enforceSpeakerIfNoExternalOutput()
             print("[Audio] Audio session reactivated after interruption")
 
             // Notify AudioService to restart audio engine (only after actual interruption)

@@ -125,9 +125,14 @@ class MumbleTcpConnection {
         // Data
         packet.append(data)
 
-        connection.send(content: packet, completion: .contentProcessed { error in
+        connection.send(content: packet, completion: .contentProcessed { [weak self] error in
             if let error = error {
                 logger.error("Send error: \(error.localizedDescription)")
+                // Treat send failure as connection loss to trigger reconnect
+                self?.isConnected = false
+                self?.stopPingTimer()
+                self?.connection?.cancel()
+                self?.delegate?.connectionError(error)
             }
         })
     }
@@ -221,6 +226,12 @@ class MumbleTcpConnection {
             guard let headerData = data, headerData.count == 6 else {
                 if isComplete {
                     logger.info("Connection closed by server")
+                    let error = NSError(domain: "MumbleTcp", code: -2, userInfo: [NSLocalizedDescriptionKey: "Verbindung vom Server geschlossen"])
+                    self.delegate?.connectionError(error)
+                } else {
+                    // Partial read — try again instead of silently dying
+                    logger.warning("Incomplete header received (\(data?.count ?? 0) bytes), retrying")
+                    self.receiveNextMessage()
                 }
                 return
             }

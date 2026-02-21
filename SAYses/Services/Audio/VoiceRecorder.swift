@@ -285,24 +285,8 @@ class VoicePlayer: NSObject, ObservableObject {
                 try session.setMode(.default)
                 print("[VoicePlayer] Audio mode set to .default")
 
-                // Check if headset is connected - if not, force speaker output
-                // (setMode(.voiceChat) may have set route to receiver)
-                let outputs = session.currentRoute.outputs
-                let hasExternalOutput = outputs.contains { port in
-                    port.portType == .headphones ||
-                    port.portType == .bluetoothA2DP ||
-                    port.portType == .bluetoothHFP ||
-                    port.portType == .bluetoothLE ||
-                    port.portType == .carAudio ||
-                    port.portType == .airPlay
-                }
-
-                if !hasExternalOutput {
-                    try session.overrideOutputAudioPort(.speaker)
-                    print("[VoicePlayer] No headset detected, routing to speaker")
-                } else {
-                    print("[VoicePlayer] External output detected, using current route")
-                }
+                // Speaker nur wenn kein Headset/Bluetooth (sonst Telefonhörer)
+                try session.enforceSpeakerIfNoExternalOutput()
             } catch {
                 print("[VoicePlayer] Failed to configure audio for playback: \(error)")
             }
@@ -341,7 +325,10 @@ class VoicePlayer: NSObject, ObservableObject {
     /// Restore audio session to .voiceChat mode for Mumble
     private func restoreVoiceChatMode() {
         do {
-            try AVAudioSession.sharedInstance().setMode(.voiceChat)
+            let session = AVAudioSession.sharedInstance()
+            try session.setMode(.voiceChat)
+            // setMode() resets the output port override — re-apply only if no headset
+            try session.enforceSpeakerIfNoExternalOutput()
             print("[VoicePlayer] Audio mode restored to .voiceChat")
         } catch {
             print("[VoicePlayer] Failed to restore audio mode: \(error)")
