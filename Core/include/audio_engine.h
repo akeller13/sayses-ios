@@ -117,6 +117,13 @@ public:
      */
     virtual bool startMixedPlayback() = 0;
 
+    /**
+     * Get the playback callback invocation count.
+     * Used to detect when the AudioUnit has silently stopped calling back.
+     * @return Number of times the playback callback has been invoked
+     */
+    virtual uint64_t getPlaybackCallbackCount() const = 0;
+
 protected:
     AudioEngine() = default;
 };

@@ -411,20 +411,27 @@ class MumbleConnection: MumbleTcpConnectionDelegate {
         delegate?.textMessageReceived(message)
     }
 
+    private var audioPacketLogCounter = 0
+
     private func handleAudioPacket(data: Data) {
         let packet = MumbleParsers.parseAudioPacket(data: data)
 
+        audioPacketLogCounter += 1
+        if audioPacketLogCounter % 500 == 1 {
+            NSLog("[MumbleConnection] handleAudioPacket #%d: valid=%d, sender=%u, localSession=%u, codec=%d, opusLen=%d",
+                  audioPacketLogCounter, packet.isValid ? 1 : 0, packet.senderSession, localSession, packet.codecType, packet.opusData.count)
+        }
+
         // Ignore invalid packets or packets from self
         guard packet.isValid else {
-            print("[MumbleConnection] Ignoring invalid audio packet")
+            NSLog("[MumbleConnection] Ignoring invalid audio packet")
             return
         }
         guard packet.senderSession != localSession else {
-            print("[MumbleConnection] Ignoring own audio packet")
             return
         }
         guard packet.codecType == 4 else {
-            print("[MumbleConnection] Ignoring non-Opus audio (codec=\(packet.codecType))")
+            NSLog("[MumbleConnection] Ignoring non-Opus audio (codec=%d)", packet.codecType)
             return
         }
 

@@ -66,6 +66,7 @@ public:
     void removeUser(uint32_t userId) override;
     void notifyUserTalkingEnded(uint32_t userId) override;
     bool startMixedPlayback() override;
+    uint64_t getPlaybackCallbackCount() const override;
 
 private:
     bool setupAudioSession();
@@ -139,6 +140,9 @@ private:
 
     // Pre-allocated buffer for playback mixing (avoid allocation in audio callback)
     std::vector<float> perUserBuffer_;
+
+    // Playback heartbeat counter (incremented in each playback callback)
+    std::atomic<uint64_t> playbackCallbackCount_{0};
 
     // Float mixer
     std::unique_ptr<FloatMixer> mixer_;
@@ -595,6 +599,10 @@ bool AudioEngineImpl::startMixedPlayback() {
     return true;
 }
 
+uint64_t AudioEngineImpl::getPlaybackCallbackCount() const {
+    return playbackCallbackCount_.load(std::memory_order_relaxed);
+}
+
 // Static capture callback
 OSStatus AudioEngineImpl::captureCallback(void* inRefCon,
                                           AudioUnitRenderActionFlags* ioActionFlags,
@@ -649,6 +657,9 @@ OSStatus AudioEngineImpl::playbackCallback(void* inRefCon,
 
     // Zero the buffer first
     memset(data, 0, frames * sizeof(int16_t));
+
+    // Always increment heartbeat counter (even when not playing)
+    engine->playbackCallbackCount_.fetch_add(1, std::memory_order_relaxed);
 
     if (!engine->playing_) {
         return noErr;

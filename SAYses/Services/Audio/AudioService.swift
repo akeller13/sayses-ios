@@ -22,6 +22,10 @@ class AudioService: ObservableObject {
     private var lastCaptureCallbackTime: Date?
     private var playbackCallback: ((UnsafeMutablePointer<Int16>, Int) -> Int)?
 
+    // Playback heartbeat tracking
+    private var lastPlaybackCallbackCount: UInt64 = 0
+    private var lastPlaybackCheckTime: Date?
+
     // Level monitoring task
     private var levelMonitorTask: Task<Void, Never>?
 
@@ -155,12 +159,22 @@ class AudioService: ObservableObject {
             // C++ engine appears dead (no callbacks for >2s) — rebuild
             NSLog("[AudioService] C++ engine appears dead (lastCallback=%@) — rebuilding engine",
                   lastCaptureCallbackTime.map { String(format: "%.1fs ago", Date().timeIntervalSince($0)) } ?? "never")
+            let wasPlaying = isPlaying
             audioEngine?.stopCapture()
+            if wasPlaying {
+                audioEngine?.stopPlayback()
+            }
             audioEngine = nil
             setupAudioEngine()
             isCapturing = false
             lastCaptureCallbackTime = nil
-            // Fall through to normal start below
+            // Also restart playback if it was running (new engine has playing_=false)
+            if wasPlaying {
+                NSLog("[AudioService] Restarting playback after dead engine rebuild")
+                isPlaying = false
+                _ = startMixedPlayback()
+            }
+            // Fall through to normal capture start below
         }
 
         guard let engine = audioEngine else {
@@ -304,11 +318,34 @@ class AudioService: ObservableObject {
             DispatchQueue.main.async {
                 self.isPlaying = true
             }
+            // Reset heartbeat tracking for the new playback session
+            lastPlaybackCallbackCount = engine.playbackCallbackCount
+            lastPlaybackCheckTime = Date()
             NSLog("[AudioService] C++ mixed playback started")
         } else {
             NSLog("[AudioService] Failed to start C++ mixed playback")
         }
         return success
+    }
+
+    /// Check if the playback callback is still being invoked by the AudioUnit.
+    /// Returns false if the callback count hasn't changed for >2 seconds.
+    func isPlaybackAlive() -> Bool {
+        guard isPlaying, let engine = audioEngine else { return false }
+        let currentCount = engine.playbackCallbackCount
+        let now = Date()
+
+        if let lastTime = lastPlaybackCheckTime {
+            let elapsed = now.timeIntervalSince(lastTime)
+            if elapsed > 2.0 && currentCount == lastPlaybackCallbackCount {
+                NSLog("[AudioService] WARNING: Playback callback stalled (count=%llu unchanged for %.1fs)", currentCount, elapsed)
+                return false
+            }
+        }
+
+        lastPlaybackCallbackCount = currentCount
+        lastPlaybackCheckTime = now
+        return true
     }
 
     // MARK: - Level Monitoring

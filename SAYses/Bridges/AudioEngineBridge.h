@@ -53,6 +53,9 @@ typedef size_t (^AudioPlaybackCallback)(int16_t *data, size_t frames);
 /// Start playback using internal user mixing (no callback needed)
 - (BOOL)startMixedPlayback;
 
+/// Get playback callback invocation count (for liveness detection)
+@property (nonatomic, readonly) uint64_t playbackCallbackCount;
+
 @end
 
 NS_ASSUME_NONNULL_END

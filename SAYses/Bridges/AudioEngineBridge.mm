@@ -132,4 +132,8 @@
     return _engine->startMixedPlayback();
 }
 
+- (uint64_t)playbackCallbackCount {
+    return _engine ? _engine->getPlaybackCallbackCount() : 0;
+}
+
 @end

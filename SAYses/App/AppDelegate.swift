@@ -20,11 +20,12 @@ extension AVAudioSession {
             port.portType == .airPlay
         }
 
+        let outputDesc = currentRoute.outputs.map { "\($0.portName) (\($0.portType.rawValue))" }.joined(separator: ", ")
         if hasExternalOutput {
-            print("[Audio] External output detected (\(currentRoute.outputs.first?.portType.rawValue ?? "?")), keeping current route")
+            NSLog("[Audio] External output detected: %@ — keeping current route", outputDesc)
         } else {
             try overrideOutputAudioPort(.speaker)
-            print("[Audio] No external output — routing to speaker")
+            NSLog("[Audio] No external output (current: %@) — routing to speaker", outputDesc)
         }
     }
 }

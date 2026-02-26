@@ -3487,12 +3487,30 @@ class MumbleService: NSObject, ObservableObject, MumbleConnectionDelegate, Chann
         }
     }
 
+    private var audioReceivedLogCounter = 0
+
     func audioReceived(session: UInt32, pcmData: UnsafePointer<Int16>, frames: Int, sequence: Int64) {
+        audioReceivedLogCounter += 1
+        if audioReceivedLogCounter % 500 == 1 {
+            NSLog("[MumbleService] audioReceived #%d: session=%u, frames=%d, seq=%lld, muted=%d, playbackStarted=%d, isPlaying=%d",
+                  audioReceivedLogCounter, session, frames, sequence,
+                  isOutputMuted ? 1 : 0, isMixedPlaybackStarted ? 1 : 0, audioService.isPlaying ? 1 : 0)
+        }
+
         // Skip playback when output is muted (speaker off) — recording/transmission stays active
         guard !isOutputMuted else { return }
 
         // Pass decoded audio to C++ engine for per-user buffering, float mixing, and crossfade
         audioService.addUserAudio(userId: session, samples: pcmData, frames: frames, sequence: sequence)
+
+        // Periodic playback health check: detect silently dead AudioUnit
+        // At ~50 packets/sec, 5000 packets ≈ every 100 seconds
+        if audioReceivedLogCounter % 5000 == 0 && isMixedPlaybackStarted {
+            if !audioService.isPlaybackAlive() {
+                NSLog("[MumbleService] WARNING: Playback callback stalled — resetting isMixedPlaybackStarted to trigger restart")
+                isMixedPlaybackStarted = false
+            }
+        }
 
         // Start mixed playback if not already running
         if !isMixedPlaybackStarted {
